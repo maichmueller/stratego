@@ -563,7 +563,7 @@ class Stratego(Reinforce):
         self.state_dim = len(self.state_represent())
         self.model = models.MoreLayer(self.state_dim, self.action_dim, n_filter=20, n_hidden=128)
         # self.model = models.Linear(self.state_dim, self.action_dim)
-        self.model.load_state_dict(torch.load('./saved_models/stratego_best.pkl'))
+        # self.model.load_state_dict(torch.load('./saved_models/stratego_best.pkl'))
 
     def state_represent(self):
         own_team_one = lambda p: (p.team == self.team and p.type == 1, 1)

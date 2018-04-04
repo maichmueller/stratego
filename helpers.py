@@ -17,7 +17,7 @@ for i in range(1, 11):
         if i < j:
             battleMatrix[i, j] = -1
             battleMatrix[j, i] = 1
-        elif i==j:
+        elif i == j:
             battleMatrix[i, i] = 0
     battleMatrix[i, 0] = 1
     if i == 3:
@@ -361,3 +361,71 @@ def visualize_features(n_points, environment, env_name):
     print("Plotting t-SNE embedding")
     plot_embedding(X_tsne, state_values, choice)
     plt.savefig('{}-tsne.png'.format(env_name))
+
+
+class GameReplay:
+    def __init__(self, board):
+        self.initialBoard = copy.deepcopy(board)
+        self.curr_board = copy.deepcopy(board)
+        self.pieces_team_0 = []
+        self.pieces_team_1 = []
+        for pos, piece in np.ndenumerate(self.initialBoard):
+            if piece is not None:
+                if piece.team == 0:
+                    self.pieces_team_0.append(piece)
+                else:
+                    self.pieces_team_1.append(piece)
+        self.moves_and_pieces_in_round = dict()
+        self.team_of_round = dict()
+
+    def add_move(self, move, pieces, team, round):
+        self.moves_and_pieces_in_round[round] = (move, pieces[0], pieces[1])
+        self.team_of_round[round] = team
+        self.curr_board = self.do_move(self.curr_board, move)
+
+    def restore_to_round(self, round):
+        round_dist = max(self.moves_and_pieces_in_round.keys()) - round
+        board_ = self.curr_board
+        if round_dist > round:  # deciding which way around to restore: from the beginning or the end
+            # restore from end
+            board_ = self.undo_last_n_moves(n=round, board=board_)
+        else:
+            # restore from beginning
+            board_ = copy.deepcopy(self.initialBoard)
+            for played_round in range(round):
+                board_ = self.do_move(board_, self.moves_and_pieces_in_round[played_round][0])
+        return board_
+
+    def undo_last_n_moves(self, n, board):
+        """
+        Undo the last n moves in the memory. Return the updated board.
+        :param board: numpy array
+        :param n: int number of moves to undo
+        :return: board
+        """
+        max_round = max(self.moves_and_pieces_in_round.keys())
+        for k in range(n):
+            (from_, to_), piece_from, piece_to = self.moves_and_pieces_in_round[max_round - k]
+            board[from_] = piece_from
+            board[to_] = piece_to
+            piece_from.position = from_
+            piece_to.position = to_
+        return board
+
+    def do_move(self, board, move):
+        """
+        :param move: tuple or array consisting of coordinates 'from' at 0 and 'to' at 1
+        :param board: numpy array representing the board
+        """
+        from_ = move[0]
+        to_ = move[1]
+        if board[to_] is not None:  # Target field is not empty, then has to fight
+            fight_outcome = battleMatrix[board[from_].type, board[to_].type]
+            if fight_outcome == 1:
+                board[to_] = board[from_]
+            elif fight_outcome == 0:
+                board[to_] = None
+        else:
+            board[to_] = board[from_]
+        board[from_] = None
+        return board

@@ -40,6 +40,7 @@ class Game:
             self.board[pos] = obs
         agent0.install_board(self.board, reset=True)
         agent1.install_board(self.board, reset=True)
+        self.game_replayer = helpers.GameReplay(self.board)
 
         self.move_count = 1  # agent 1 starts
 
@@ -120,7 +121,7 @@ class Game:
         else:
             self.update_board((to_, self.board[from_]))
             self.update_board((from_, None))
-
+        self.game_replayer.add_move(move, (self.board[from_], self.board[to_]), self.move_count % 2, self.move_count)
         return True
 
     def update_board(self, updated_piece):

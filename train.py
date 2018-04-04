@@ -171,7 +171,7 @@ env_name = "stratego"
 
 model = env.agents[0].model  # optimize model of agent0
 
-optimizer = optim.RMSprop(model.parameters())
+optimizer = optim.Adam(model.parameters())
 memory = helpers.ReplayMemory(10000)
 
 model.load_state_dict(torch.load('./saved_models/{}_current.pkl'.format(env_name)))  # trained against Random
@@ -180,7 +180,3 @@ model.load_state_dict(torch.load('./saved_models/{}_current.pkl'.format(env_name
 
 run_env(env, 10000)
 
-# Recovering the training curve
-# averages = pickle.load(open("{}-averages.p".format(env_name), "rb"))
-# episode_won = pickle.load(open("{}-episode_won.p".format(env_name), "rb"))
-# averages = helpers.plot_stats(averages, episode_won, N_SMOOTH, PLOT_FREQUENCY)  # takes run time
