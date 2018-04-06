@@ -31,16 +31,16 @@ class Piece:
 
     def __str__(self):  # for printing pieces on the board return type of piece
         if self.hidden:
-            return "?"
+            return "-{}/{}".format(self.team, self.type)
         else:
-            if self.type == 0:
-                return "f"
-            if self.type == 11:
-                return "b"
+            # if self.type == 0:
+            #     return "f"
+            # if self.type == 11:
+            #     return "b"
             if self.type == 99:
                 return "X"
             else:
-                return str(self.type)
+                return "{}/{}".format(self.team, self.type)
 
     def change_position(self, new_pos):
         #self.positions_history.append(new_pos)

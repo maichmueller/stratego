@@ -11,23 +11,23 @@ from torch.nn import functional as F
 from torch.autograd import Variable
 import copy
 
-battleMatrix = dict()
+BATTLE_MATRIX = dict()
 for i in range(1, 11):
     for j in range(1, 11):
         if i < j:
-            battleMatrix[i, j] = -1
-            battleMatrix[j, i] = 1
+            BATTLE_MATRIX[i, j] = -1
+            BATTLE_MATRIX[j, i] = 1
         elif i == j:
-            battleMatrix[i, i] = 0
-    battleMatrix[i, 0] = 1
+            BATTLE_MATRIX[i, i] = 0
+    BATTLE_MATRIX[i, 0] = 1
     if i == 3:
-        battleMatrix[i, 11] = 1
+        BATTLE_MATRIX[i, 11] = 1
     else:
-        battleMatrix[i, 11] = -1
-battleMatrix[1, 10] = 1
+        BATTLE_MATRIX[i, 11] = -1
+BATTLE_MATRIX[1, 10] = 1
 
 def get_battle_matrix():
-    return battleMatrix
+    return BATTLE_MATRIX
 
 
 # def is_legal_move_extensive(board, move_to_check):
@@ -420,7 +420,7 @@ class GameReplay:
         from_ = move[0]
         to_ = move[1]
         if board[to_] is not None:  # Target field is not empty, then has to fight
-            fight_outcome = battleMatrix[board[from_].type, board[to_].type]
+            fight_outcome = BATTLE_MATRIX[board[from_].type, board[to_].type]
             if fight_outcome == 1:
                 board[to_] = board[from_]
             elif fight_outcome == 0:

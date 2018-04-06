@@ -33,6 +33,7 @@ def optimize_model():
     non_final_next_states = Variable(torch.cat([s for s in batch.next_state if s is not None]), volatile=True)
     state_batch = Variable(torch.cat(batch.state))
     action_batch = Variable(torch.cat(batch.action))
+
     reward_batch = Variable(torch.cat(batch.reward))
 
     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the columns of actions taken
@@ -101,33 +102,44 @@ def train(env, num_episodes):
                     # act in environment
                     p_random = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * i_episode / EPS_DECAY)
                     action = env.agents[0].select_action(state, p_random)  # random action with p_random
-                    move = env.agents[0].action_to_move(action[0, 0])
-                    reward_value, done, won = env.step(move)  # environment step for action
-                    if VERBOSE > 2:
-                            print(action[0, 0], reward_value)
+                    if action is not None:
+                        move = env.agents[0].action_to_move(action[0, 0])
+                    else:
+                        move = None
+                    # environment step for action
+                    reward_value, done, won = env.step(move)
+
+                    # env.show()
+                    # if VERBOSE > 2:
+                    #         print(action[0, 0], reward_value)
                     reward = torch.FloatTensor([reward_value])
 
                     # save transition as memory and optimize model
                     if done:  # if terminal state
-                            next_state = None
+                        next_state = None
+                        if won > 0:
+                            won = 1
+                        else:
+                            won = 0
                     else:
-                            next_state = env.agents[0].board_to_state()
+                        next_state = env.agents[0].board_to_state()
 
-                    memory.push(state, action, next_state, reward)  # store the transition in memory
+                    if move is not None:
+                        memory.push(state, action, next_state, reward)  # store the transition in memory
                     state = next_state  # move to the next state
                     optimize_model()  # one step of optimization of target network
 
                     if done:
                         # after each episode print stats
-                        if VERBOSE > 1:
+                        if VERBOSE > 0:
                             print("Episode {}/{}".format(i_episode, num_episodes))
-                            print("Score: {}".format(env.score))
+                            print("Score: {}%".format(100*round(sum(episode_won)/len(episode_won), ndigits=3)))
                             print("Won: {}".format(won))
                             print("Noise: {}".format(p_random))
                             print("Illegal: {}/{}\n".format(env.illegal_moves, env.steps))
                         episode_scores.append(env.score)
                         episode_won.append(won)
-                        if VERBOSE > 0:
+                        if VERBOSE > 1:
                             if i_episode % PLOT_FREQUENCY == 0:
                                 print("Episode {}/{}".format(i_episode, num_episodes))
                                 global N_SMOOTH
@@ -149,6 +161,7 @@ def train(env, num_episodes):
 
 
 # hyperparameters
+use_cuda = torch.cuda.is_available()
 PLOT_FREQUENCY = 500
 BATCH_SIZE = 256  # for faster training take a smaller batch size, not too small as batchnorm will not work otherwise
 GAMMA = 0.9  # already favors reaching goal faster, no need for reward_step, the lower GAMMA the faster
@@ -156,7 +169,7 @@ EPS_START = 0.9  # for unstable models take higher randomness first
 EPS_END = 0.01
 EPS_DECAY = 2000
 N_SMOOTH = 500  # plotting scores averaged over this number of episodes
-VERBOSE = 1  # level of printed output verbosity:
+VERBOSE = 3  # level of printed output verbosity:
                 # 1: plot averaged episode stats
                 # 2: also print actions taken and rewards
                 # 3: every 100 episodes run_env()
@@ -166,16 +179,16 @@ num_episodes = 100000  # training for how many episodes
 agent0 = agent.Stratego(0)
 agent1 = agent.Random(1)
 agent1.model = agent0.model  # if want to train by self-play
-env = env.Stratego(agent0, agent1)
+env = env.Env(agent0, agent1)
 env_name = "stratego"
 
 model = env.agents[0].model  # optimize model of agent0
-
+model = model.cuda() if use_cuda else model
 optimizer = optim.Adam(model.parameters())
 memory = helpers.ReplayMemory(10000)
 
-model.load_state_dict(torch.load('./saved_models/{}_current.pkl'.format(env_name)))  # trained against Random
-# train(env, num_episodes)
+# model.load_state_dict(torch.load('./saved_models/{}_current.pkl'.format(env_name)))  # trained against Random
+train(env, num_episodes)
 # model.load_state_dict(torch.load('./saved_models/{}.pkl'.format(env_name)))  # trained against Random
 
 run_env(env, 10000)

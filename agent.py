@@ -206,6 +206,7 @@ class Reinforce(Agent):
         self.state_dim = NotImplementedError
         self.action_dim = NotImplementedError
         self.model = NotImplementedError
+        self.actors = []
 
     def install_board(self, board, reset=False):
         super().install_board(board, reset=False)
