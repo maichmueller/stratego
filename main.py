@@ -318,5 +318,5 @@ def simu_env(env, num_simulations=1000, watch=True):
 #simu_env(environment, num_simulations=1000, watch=False)
 
 #for testing the full game (can use different setup functions)
-game_ = game.Game(agent.Random(0), agent.MiniMax(1), game_size="big")
+game_ = game.Game(agent.Random(0), agent.MiniMax(1), board_size="large")
 simulation(game_, num_simulations=1000, show_game=False)
