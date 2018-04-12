@@ -11,6 +11,7 @@ import torch
 import models
 
 
+
 class Agent:
     """
     Agent decides which action to take
@@ -203,6 +204,7 @@ class Reinforce(Agent):
     """
     def __init__(self, team, setup=None):
         super(Reinforce, self).__init__(team=team, setup=setup)
+        self.use_cuda = torch.cuda.is_available()
         self.state_dim = NotImplementedError
         self.action_dim = NotImplementedError
         self.model = NotImplementedError
@@ -288,12 +290,12 @@ class Reinforce(Agent):
             # print("normed: {}".format(np.round(normed, 2)))
             # action = int(action)  # normal int not numpy int
 
-            return torch.LongTensor([[action]])
+            return torch.LongTensor([[action]]).cuda() if self.use_cuda else torch.LongTensor([[action]])
         else:
             # 1. random from possible (not-illegal) actions
             i = random.randint(0, len(poss_actions) - 1)
             random_action = poss_actions[i]
-            return torch.LongTensor([[random_action]])
+            return torch.LongTensor([[random_action]]).cuda() if self.use_cuda else torch.LongTensor([[random_action]])
             # 2. truly random (including illegal moves)
             # return torch.LongTensor([[random.randint(0, action_dim - 1)]])
 
@@ -363,7 +365,7 @@ class Reinforce(Agent):
                     condition, value = cond(p)
                     if condition:
                         board_state[tuple([i] + list(pos))] = value  # represent type
-        board_state = torch.FloatTensor(board_state)
+        board_state = torch.FloatTensor(board_state).cuda() if self.use_cuda else torch.FloatTensor(board_state)
         board_state = board_state.view(1, state_dim, self.board.shape[0], self.board.shape[0])  # add dimension for more batches
         return board_state
 
@@ -949,6 +951,64 @@ class OmniscientHeuristic(Omniscient):
                 terminal_reward = - self.winGameReward
             return terminal_reward * (depth + 1) / (self.max_depth + 1) * (terminal_reward / self.kill_reward)
 
+
+class MiniMaxBoardEvaluator(MiniMax):
+    def __init__(self, team, setup=None):
+        super(MiniMaxBoardEvaluator, self).__init__(team=team, setup=setup)
+        self.evaluator = Stratego(team)
+
+    def evaluate_board_state(self, board):
+        own_pieces_alive = []
+        euclidean = spatial.distance.euclidean
+        for piece in self.own_pieces:
+            if not piece.dead:
+                own_pieces_alive.append(piece)
+                if piece.type == 0:
+                    flag = piece
+        opp_pieces_alive = []
+        for piece in self.ordered_opp_pieces:
+            if not piece.dead:
+                opp_pieces_alive.append(piece)
+                if piece.type == 0:
+                    opp_flag = piece
+        if opp_flag.dead:
+            return self.winGameReward
+
+        own_flag_distances_own_pieces = [euclidean(flag.pos, piece.pos) for piece in own_pieces_alive]
+        own_flag_distances_opp_pieces = [euclidean(flag.pos, piece.pos) for piece in opp_pieces_alive]
+        opp_flag_distances_own_pieces = [euclidean(opp_flag.pos, piece.pos) for piece in own_pieces_alive]
+
+        immediate_own_flag_fields = []
+        immediate_opp_flag_fields = []
+        for i in [1, -1]:
+            if 0 <= flag.pos[0]+i < board.shape[0]:
+                immediate_own_flag_fields.append( (flag.pos[0]+i, flag.pos[1]) )
+            if 0 <= flag.pos[1]+i < board.shape[0]:
+                immediate_own_flag_fields.append( (flag.pos[0], flag.pos[1]+i) )
+            if 0 <= opp_flag.pos[0]+i < board.shape[0]:
+                immediate_opp_flag_fields.append( (opp_flag.pos[0]+i, opp_flag.pos[1]) )
+            if 0 <= opp_flag.pos[1]+i < board.shape[0]:
+                immediate_opp_flag_fields.append( (opp_flag.pos[0], opp_flag.pos[1]+i) )
+
+        own_flag_imm_danger = [1 if not board[pos].team == self.team else 0 for pos in immediate_own_flag_fields ]
+        opp_flag_imm_danger = [1 if board[pos].team == self.team else 0 for pos in immediate_opp_flag_fields ]
+
+        owFowP_dist_weight = 0.1
+        opFowP_dist_weight = 0.7
+        owFopP_dist_weight = -0.5
+        owF_imm_danger_weight = -10
+        opF_imm_danger_weight = 10
+        owP_alive_weight = 0.3
+        opP_alive_weight = -0.3
+
+        evaluation = owFowP_dist_weight*sum(own_flag_distances_own_pieces) + \
+                     opFowP_dist_weight*sum(opp_flag_distances_own_pieces) + \
+                     owFopP_dist_weight*sum(own_flag_distances_opp_pieces) + \
+                     owF_imm_danger_weight*sum(own_flag_imm_danger) + \
+                     opF_imm_danger_weight*sum(opp_flag_imm_danger) + \
+                     owP_alive_weight*sum(own_pieces_alive) + \
+                     opP_alive_weight*sum(opp_pieces_alive)
+        return evaluation
 
 class Heuristic(MiniMax):
     """

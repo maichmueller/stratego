@@ -7,30 +7,42 @@ import pieces
 
 
 class Game:
-    def __init__(self, agent0, agent1, game_size="big"):
-        self.game_size = game_size
+    def __init__(self, agent0, agent1, board_size="big", fixed_setups=False, *args):
+        self.board_size = board_size
         self.agents = (agent0, agent1)
-        if game_size == "small":
+        self.fixed_setups = fixed_setups
+        if board_size == "small":
             self.types_available = np.array([0, 1] + [2]*3 + [3]*2 + [10] + [11]*2)
             self.obstacle_positions = [(2, 2)]
             self.game_dim = 5
-        elif game_size == "medium":
+        elif board_size == "medium":
             self.obstacle_positions = [(3, 1), (3, 5)]
             self.types_available = np.array([0, 1] + [2]*5 + [3]*3 + [4]*3 + [5]*2 + [6] + [10] + [11]*4)
             self.game_dim = 7
-        else:
+        elif board_size == "large":
             self.obstacle_positions = [(4, 2), (5, 2), (4, 3), (5, 3), (4, 6), (5, 6), (4, 7), (5, 7)]
             self.types_available = np.array([0, 1] + [2]*8 + [3]*5 + [4]*4 + [5]*4 + [6]*4 +
                                             [7]*3 + [8]*2 + [9]*1 + [10] + [11]*6)
             self.game_dim = 10
-        self.board = np.empty((self.game_dim, self.game_dim), dtype=object)
-        setup0, setup1 = agent0.setup, agent1.setup
+        elif board_size == "custom":
+            assert(args is not None)
+            self.game_dim = 5
+            self.obstacle_positions = [(2, 2)]
+            self.types_available = args
+            self.game_dim = 5
 
-        for idx, piece in np.ndenumerate(setup0):
+        self.board = np.empty((self.game_dim, self.game_dim), dtype=object)
+        if not fixed_setups:
+            agent0.setup = self.draw_random_setup(self.types_available, 0, self.game_dim)
+            agent1.setup = self.draw_random_setup(self.types_available, 1, self.game_dim)
+        else:
+            agent0.setup, agent1.setup = agent0.setup, agent1.setup
+
+        for idx, piece in np.ndenumerate(agent0.setup):
             if piece is not None:
                 piece.hidden = False
                 self.board[piece.position] = piece
-        for idx, piece in np.ndenumerate(setup1):
+        for idx, piece in np.ndenumerate(agent1.setup):
             if piece is not None:
                 piece.hidden = False
                 self.board[piece.position] = piece
@@ -54,7 +66,7 @@ class Game:
         self.BATTLE_MATRIX = helpers.get_battle_matrix()
 
     def reset(self):
-        self.__init__(self.agents[0], self.agents[1], self.game_size)
+        self.__init__(self.agents[0], self.agents[1], self.board_size)
 
     def run_game(self):
         game_over = False
@@ -71,7 +83,7 @@ class Game:
 
         # if self.move_count > 1000:  # if game lasts longer than 1000 turns => tie
         #     return 0, 0  # each agent gets reward 0
-        if not move is False:
+        if move is not False:
             new_move = move
         else:
             new_move = self.agents[turn].decide_move()
@@ -93,6 +105,51 @@ class Game:
         for agent_ in self.agents:
             agent_.move_count = self.move_count
         return 0, 0
+
+    def draw_random_setup(self, types_available, team, game_dim):
+        """
+        Draw a random setup from the set of types types_available after placing the flag
+        somewhere in the last row of the board of the side of 'team', or behind the obstacle.
+        :param types_available: list of types to draw from, integers
+        :param team: boolean, 1 or 0 depending on the team
+        :param game_dim: int, the board dimension
+        :return: the setup, in numpy array form
+        """
+        nr_pieces = len(types_available)-1
+        types_available = [type_ for type_ in types_available if not type_ == 0]
+        if game_dim == 5:
+            row_offset = 2
+        elif game_dim == 7:
+            row_offset = 3
+        else:
+            row_offset = 4
+        setup_agent = np.empty((row_offset, game_dim), dtype=object)
+        if team == 0:
+            flag_positions = [(game_dim-1, j) for j in range(game_dim)]
+            flag_choice = np.random.choice(range(len(flag_positions)), 1)[0]
+            flag_pos = game_dim-1 - flag_positions[flag_choice][0], game_dim-1 - flag_positions[flag_choice][1]
+            setup_agent[flag_pos] = pieces.Piece(0, 0, flag_positions[flag_choice])
+
+            types_draw = np.random.choice(types_available, nr_pieces, replace=False)
+            positions_agent_0 = [(i, j) for i in range(game_dim-row_offset, game_dim) for j in range(game_dim)]
+            positions_agent_0.remove(flag_positions[flag_choice])
+
+            for idx in range(nr_pieces):
+                pos = positions_agent_0[idx]
+                setup_agent[(game_dim-1 - pos[0], game_dim-1 - pos[1])] = pieces.Piece(types_draw[idx], 0, pos)
+        elif team == 1:
+            flag_positions = [(0, j) for j in range(game_dim)]
+            flag_choice = np.random.choice(range(len(flag_positions)), 1)[0]
+            setup_agent[flag_positions[flag_choice]] = pieces.Piece(0, 1, flag_positions[flag_choice])
+
+            types_draw = np.random.choice(types_available, nr_pieces, replace=False)
+            positions_agent_1 = [(i, j) for i in range(row_offset) for j in range(game_dim)]
+            positions_agent_1.remove(flag_positions[flag_choice])
+
+            for idx in range(nr_pieces):
+                pos = positions_agent_1[idx]
+                setup_agent[pos] = pieces.Piece(types_draw[idx], 1, pos)
+        return setup_agent
 
     def do_move(self, move):
         """
