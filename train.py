@@ -70,7 +70,8 @@ def run_env(env, n_runs=100, show=True):
         while not done:
             state = env.agents[0].board_to_state()  # for the reinforcement agent convert board to state input
             action = env.agents[0].select_action(state, 0.00)
-            action = action[0, 0]  # action is unwrapped from the LongTensor
+            if action is not None:
+                action = action[0, 0]  # action is unwrapped from the LongTensor
             move = env.agents[0].action_to_move(action)  # e.g. action = 1 -> move = ((0, 0), (0, 1))
             _, done, won = env.step(move)
             if show:
@@ -156,15 +157,15 @@ def train(env_, num_episodes):
                             if i_episode % PLOT_FREQUENCY == 0:
                                 print("Episode {}/{}".format(i_episode, num_episodes))
                                 # helpers.plot_scores(episode_scores, N_SMOOTH)  # takes run time
-                                averages = helpers.plot_stats(averages, episode_won, N_SMOOTH, PLOT_FREQUENCY) # takes run time
+                                averages = helpers.plot_stats(averages, episode_won, N_SMOOTH, PLOT_FREQUENCY)
                                 torch.save(model.state_dict(), './saved_models/{}_current.pkl'.format(env_name))
                                 if averages:
                                     if averages[-1] > best_winratio:
                                         best_winratio = averages[-1]
                                         print("Best win ratio: {}".format(np.round(best_winratio, 2)))
                                         torch.save(model.state_dict(), './saved_models/{}_best.pkl'.format(env_name))
-                                pickle.dump(averages, open("{}-averages.p".format(env_name), "wb"))
-                                pickle.dump(episode_won, open("{}-episode_won.p".format(env_name), "wb"))
+                                # pickle.dump(averages, open("{}-averages.p".format(env_name), "wb"))
+                                # pickle.dump(episode_won, open("{}-episode_won.p".format(env_name), "wb"))
 
                         break
             if i_episode % 500 == 2:
@@ -190,10 +191,10 @@ VERBOSE = 1  # level of printed output verbosity:
 
 num_episodes = 100000  # training for how many episodes
 agent0 = agent.Stratego(0)
-agent1 = agent.Stratego(1)
+agent1 = agent.MiniMax(1)
 # agent1 = agent.Random(1)
-agent1.model = agent0.model  # if want to train by self-play
-env__ = env.Env(agent0, agent1)
+# agent1.model = agent0.model  # if want to train by self-play
+env__ = env.Env(agent0, agent1, False, "custom", [0, 1])
 env_name = "stratego"
 
 model = env__.agents[0].model  # optimize model of agent0

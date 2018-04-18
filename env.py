@@ -13,7 +13,7 @@ class Env:
     """
     Environment superclass. Used for training the agent.
     """
-    def __init__(self, agent0, agent1, board_size="small", fixed_setups=False, *args):
+    def __init__(self, agent0, agent1, fixed_setups=False, board_size="small", *args):
         self.board_size = board_size
         self.agents = (agent0, agent1)
         self.fixed_setups = fixed_setups
@@ -25,10 +25,11 @@ class Env:
 
         typecounter = [dict(), dict()]
         for idx, piece in np.ndenumerate(np.concatenate((agent0.setup, agent1.setup))):
-            typecounter[piece.team][piece.type] = 0
-            self.living_pieces[piece.team].append(piece)
-            typecounter[piece.team][piece.type] += 1
-            piece.version = typecounter[piece.team][piece.type]
+            if piece is not None:
+                typecounter[piece.team][piece.type] = 0
+                self.living_pieces[piece.team].append(piece)
+                typecounter[piece.team][piece.type] += 1
+                piece.version = typecounter[piece.team][piece.type]
 
         self.board = self.game_engine.board
 

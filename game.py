@@ -28,7 +28,7 @@ class Game:
             assert(args is not None)
             self.game_dim = 5
             self.obstacle_positions = [(2, 2)]
-            self.types_available = args
+            self.types_available = args[0][0]
             self.game_dim = 5
 
         self.board = np.empty((self.game_dim, self.game_dim), dtype=object)

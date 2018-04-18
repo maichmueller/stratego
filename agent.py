@@ -1006,8 +1006,8 @@ class MiniMaxBoardEvaluator(MiniMax):
                      owFopP_dist_weight*sum(own_flag_distances_opp_pieces) + \
                      owF_imm_danger_weight*sum(own_flag_imm_danger) + \
                      opF_imm_danger_weight*sum(opp_flag_imm_danger) + \
-                     owP_alive_weight*sum(own_pieces_alive) + \
-                     opP_alive_weight*sum(opp_pieces_alive)
+                     owP_alive_weight*len(own_pieces_alive) + \
+                     opP_alive_weight*len(opp_pieces_alive)
         return evaluation
 
 class Heuristic(MiniMax):
