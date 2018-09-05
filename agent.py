@@ -286,12 +286,6 @@ class Reinforce(Agent):
             #action = int(np.argmax(q_values))
             action = int(np.argmax(q_values))
 
-            # 2. probabilistic: interpret q-value as probability, re-normalize to probabilities
-            # normed = [float(i) / sum(p) for i in q_values]
-            # action = np.random.choice(np.arange(0, self.action_dim), p=normed)
-            # print("normed: {}".format(np.round(normed, 2)))
-            # action = int(action)  # normal int not numpy int
-
             return torch.LongTensor([[action]]).cuda() if self.use_cuda else torch.LongTensor([[action]])
         else:
             # 1. random from possible (not-illegal) actions
