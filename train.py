@@ -54,8 +54,8 @@ def optimize_model():
 
     # Compute V(s_{t+1}) for all next states.
     next_state_values = torch.zeros(BATCH_SIZE).float()  # zero for terminal states
-    x = model(non_final_next_states.to(device))
-    next_state_values[non_final_mask] = model(non_final_next_states.to(device)).max(1)[0] # what would the model predict
+    zt = model(non_final_next_states.to(device))
+    next_state_values[non_final_mask.cpu()] = model(non_final_next_states.to(device)).max(1)[0] # what would the model predict
     with torch.no_grad():
         expected_state_action_values = (next_state_values * GAMMA) + reward_batch  # compute the expected Q values
 
