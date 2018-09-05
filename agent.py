@@ -275,7 +275,7 @@ class Reinforce(Agent):
             self.model.eval()
             state_action_values = self.model(state).view(-1)
             # state_action_values = state_action_values.cpu()
-            q_values = state_action_values.detach().numpy()
+            q_values = state_action_values
 
             for action in range(len(q_values)):
                 if action not in poss_actions:
@@ -284,7 +284,7 @@ class Reinforce(Agent):
 
             # 1. deterministic action selection (always select maximum q-value
             #action = int(np.argmax(q_values))
-            action = int(np.argmax(q_values))
+            action = int(torch.argmax(q_values))
 
             return torch.LongTensor([[action]]).cuda() if self.use_cuda else torch.LongTensor([[action]])
         else:
