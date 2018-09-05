@@ -273,8 +273,8 @@ class Reinforce(Agent):
         sample = random.random()
         if sample > p_random:
             self.model.eval()
-            state_action_values = self.model(state)
-            q_values = list(state_action_values.data[0].numpy())
+            state_action_values = self.model(state).view(-1)
+            q_values = state_action_values.detach().numpy()
 
             for action in range(len(q_values)):
                 if action not in poss_actions:
@@ -282,7 +282,8 @@ class Reinforce(Agent):
             # print("masked: {}".format(np.round(q_values, 2)))
 
             # 1. deterministic action selection (always select maximum q-value
-            action = q_values.index(max(q_values))
+            #action = int(np.argmax(q_values))
+            action = int(np.argmax(q_values))
 
             # 2. probabilistic: interpret q-value as probability, re-normalize to probabilities
             # normed = [float(i) / sum(p) for i in q_values]
@@ -628,6 +629,7 @@ class OmniscientStratego(Stratego):
         else:
             return None
         return move
+
 
 class MiniMax(Agent):
     """

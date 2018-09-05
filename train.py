@@ -177,7 +177,7 @@ def train(env_, num_episodes):
 # hyperparameters
 
 use_cuda = torch.cuda.is_available()
-print("CUDA IS USED: {}".format(use_cuda))
+print("CUDA WILL BE USED: {}".format(use_cuda))
 PLOT_FREQUENCY = 500
 BATCH_SIZE = 256*10  # for faster training take a smaller batch size, not too small as batchnorm will not work otherwise
 GAMMA = 0.9  # already favors reaching goal faster, no need for reward_step, the lower GAMMA the faster
