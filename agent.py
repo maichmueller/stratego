@@ -273,7 +273,7 @@ class Reinforce(Agent):
         sample = random.random()
         if sample > p_random:
             self.model.eval()
-            state_action_values = self.model(Variable(state, volatile=True))
+            state_action_values = self.model(torch.Tensor(state))
             q_values = list(state_action_values.data[0].numpy())
 
             for action in range(len(q_values)):
@@ -560,11 +560,35 @@ class FourPieces(Reinforce):
 
 
 class Stratego(Reinforce):
-    def __init__(self, team):
+    def __init__(self, team, game_dim=5):
         super(Stratego, self).__init__(team=team)
         self.action_dim = 64  # all pieces 3 * 16 (for pieces: 2, 2, 2) + 4 * 4 for (for pieces 1, 3, 3, 10)
         self.state_dim = len(self.state_represent())
-        self.model = models.MoreLayer(self.state_dim, self.action_dim, n_filter=20, n_hidden=128)
+        filter_amounts = np.array([128, 128])
+        maxpool_layer_pos = np.array([0, 1])
+        width, height = game_dim, game_dim
+        for pos in maxpool_layer_pos:
+            if pos == 1:
+                width = game_dim // 2
+                height = width
+        d_in = filter_amounts[-1] * width * height
+        d_out = self.action_dim
+        nr_lin_layers = 5
+        kernel_sizes = np.array([3, 5])
+        dropout_prob_per_layer = np.array([0.5, 0.5])
+        start_layer_exponent = 10
+        activation_function = torch.nn.ReLU()
+        self.model = models.ELaborateConvFC(game_dim=game_dim,
+                                            channels_in=self.state_dim,
+                                            filter_amounts=filter_amounts,
+                                            maxpool_layer_pos=maxpool_layer_pos,
+                                            d_in=d_in,
+                                            d_out=d_out,
+                                            kernel_sizes=kernel_sizes,
+                                            nr_lin_layers=nr_lin_layers,
+                                            dropout_prob_per_layer=dropout_prob_per_layer,
+                                            start_layer_exponent=start_layer_exponent,
+                                            activation_function=activation_function)
         # self.model = models.Linear(self.state_dim, self.action_dim)
         # self.model.load_state_dict(torch.load('./saved_models/stratego_best.pkl'))
 

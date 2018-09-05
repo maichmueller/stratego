@@ -33,8 +33,8 @@ class Game:
 
         self.board = np.empty((self.game_dim, self.game_dim), dtype=object)
         if not fixed_setups:
-            agent0.setup = self.draw_random_setup(self.types_available, 0, self.game_dim)
-            agent1.setup = self.draw_random_setup(self.types_available, 1, self.game_dim)
+            agent0.setup = self.__draw_random_setup(self.types_available, 0, self.game_dim)
+            agent1.setup = self.__draw_random_setup(self.types_available, 1, self.game_dim)
         else:
             agent0.setup, agent1.setup = agent0.setup, agent1.setup
 
@@ -106,7 +106,7 @@ class Game:
             agent_.move_count = self.move_count
         return 0, 0
 
-    def draw_random_setup(self, types_available, team, game_dim):
+    def __draw_random_setup(self, types_available, team, game_dim):
         """
         Draw a random setup from the set of types types_available after placing the flag
         somewhere in the last row of the board of the side of 'team', or behind the obstacle.
