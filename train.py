@@ -17,7 +17,7 @@ import copy
 # http://pytorch.org/tutorials/intermediate/reinforcement_q_learning.html
 
 
-def optimize_model():
+def optimize_model(model):
     """
     Sample batch from memory of environment transitions and train network to fit the
     temporal difference TD(0) Q-value approximation
@@ -54,8 +54,7 @@ def optimize_model():
 
     # Compute V(s_{t+1}) for all next states.
     next_state_values = torch.zeros(BATCH_SIZE).float()  # zero for terminal states
-    zt = model(non_final_next_states.to(device))
-    next_state_values[non_final_mask.cpu()] = model(non_final_next_states.to(device)).max(1)[0] # what would the model predict
+    next_state_values[non_final_mask.cpu()] = model(non_final_next_states).max(1)[0].to(device) # what would the model predict
     with torch.no_grad():
         expected_state_action_values = (next_state_values * GAMMA) + reward_batch  # compute the expected Q values
 
@@ -153,7 +152,7 @@ def train(env_, num_episodes):
                 if move is not None:
                     memory.push(state, action, next_state, reward)  # store the transition in memory
                 state = next_state  # move to the next state
-                optimize_model()  # one step of optimization of target network
+                optimize_model(agent0.model)  # one step of optimization of target network
 
                 if done:
                     # after each episode print stats
