@@ -33,11 +33,6 @@ def optimize_model():
     non_final_idx = []
     non_final_next_states = []
 
-    all_same_type = [s for s in batch.next_state if s is not None]
-    all_same_type = [s.is_cuda for s in all_same_type]
-    print(all_same_type)
-    print(np.all(all_same_type))
-
     for idx, state in enumerate(batch.next_state):
         if state is not None:
             non_final_mask.append(True)
@@ -59,7 +54,7 @@ def optimize_model():
 
     # Compute V(s_{t+1}) for all next states.
     next_state_values = torch.zeros(BATCH_SIZE).float()  # zero for terminal states
-    next_state_values[non_final_mask] = model(non_final_next_states).max(1)[0] # what would the model predict
+    next_state_values[non_final_mask] = model(non_final_next_states.to(device)).max(1)[0] # what would the model predict
     with torch.no_grad():
         expected_state_action_values = (next_state_values * GAMMA) + reward_batch  # compute the expected Q values
 
@@ -145,7 +140,7 @@ def train(env_, num_episodes):
                 # env.show()
                 # if VERBOSE > 2:
                 #         print(action[0, 0], reward_value)
-                reward = torch.FloatTensor([reward_value]).cuda() if use_cuda else torch.FloatTensor([reward_value])
+                reward = torch.FloatTensor([reward_value]).to(device)
 
                 # save transition as memory and optimize model
                 if done:  # if terminal state
@@ -191,8 +186,8 @@ def train(env_, num_episodes):
 
 # hyperparameters
 
-use_cuda = torch.cuda.is_available()
-print("CUDA WILL BE USED: {}".format(use_cuda))
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print("TORCH DEVICE USED: {}".format(device))
 PLOT_FREQUENCY = 500
 BATCH_SIZE = 100  # for faster training take a smaller batch size, not too small as batchnorm will not work otherwise
 GAMMA = 0.9  # already favors reaching goal faster, no need for reward_step, the lower GAMMA the faster
@@ -215,7 +210,7 @@ env__ = env.Env(agent0, agent1, False, "custom", [0, 1])
 env_name = "stratego"
 
 model = env__.agents[0].model  # optimize model of agent0
-model = model.cuda() if use_cuda else model.cpu()
+model = model.to(device)
 optimizer = optim.Adam(model.parameters())
 memory = helpers.ReplayMemory(10000)
 
