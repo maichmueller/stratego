@@ -127,8 +127,11 @@ class ELaborateConvFC(nn.Module):
         self.fully_connected_net = NNLinear(d_in, d_out, nr_lin_layers,
                                             start_layer_exponent, activation_function)
         self.game_dim = game_dim
+        self.use_cuda = torch.cuda.is_available()
 
     def extract_features(self, x):
+        if self.use_cuda:
+            x = x.cuda()
         params = self.named_parameters()
         output_per_layer = []
         for layer in self.conv_net.conv_layers:
@@ -140,6 +143,8 @@ class ELaborateConvFC(nn.Module):
         return params, output_per_layer
 
     def forward(self, x):
+        if self.use_cuda:
+            x = x.cuda()
         for layer in self.conv_net.conv_layers:
             x = layer(x)
         x = x.view(-1, self.d_in)
