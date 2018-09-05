@@ -30,6 +30,12 @@ def optimize_model():
 
     # Compute a mask of non-final states and concatenate the batch elements
     non_final_mask = torch.ByteTensor(tuple(map(lambda s: s is not None, batch.next_state)))
+    def check(x):
+        if x is not None:
+            return x.is_cuda
+    all_same_type = np.array(list(map(check, batch.next_state)))
+    print(all_same_type)
+    print(np.all(all_same_type))
     non_final_next_states = torch.Tensor(torch.cat([s for s in batch.next_state if s is not None]))
     state_batch = Variable(torch.cat(batch.state))
     action_batch = Variable(torch.cat(batch.action))
@@ -132,10 +138,7 @@ def train(env_, num_episodes):
                 # save transition as memory and optimize model
                 if done:  # if terminal state
                     next_state = None
-                    if won > 0:
-                        won = 1
-                    else:
-                        won = 0
+                    won = 1 if won > 0 else 0
                 else:
                     next_state = env_.agents[0].board_to_state()
 
