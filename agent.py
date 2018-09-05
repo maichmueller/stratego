@@ -273,7 +273,7 @@ class Reinforce(Agent):
         sample = random.random()
         if sample > p_random:
             self.model.eval()
-            state_action_values = self.model(torch.Tensor(state))
+            state_action_values = self.model(state)
             q_values = list(state_action_values.data[0].numpy())
 
             for action in range(len(q_values)):
