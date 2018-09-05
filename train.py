@@ -54,6 +54,7 @@ def optimize_model():
 
     # Compute V(s_{t+1}) for all next states.
     next_state_values = torch.zeros(BATCH_SIZE).float()  # zero for terminal states
+    x = model(non_final_next_states.to(device))
     next_state_values[non_final_mask] = model(non_final_next_states.to(device)).max(1)[0] # what would the model predict
     with torch.no_grad():
         expected_state_action_values = (next_state_values * GAMMA) + reward_batch  # compute the expected Q values
@@ -186,7 +187,7 @@ def train(env_, num_episodes):
 
 # hyperparameters
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = helpers.get_device()
 print("TORCH DEVICE USED: {}".format(device))
 PLOT_FREQUENCY = 500
 BATCH_SIZE = 100  # for faster training take a smaller batch size, not too small as batchnorm will not work otherwise

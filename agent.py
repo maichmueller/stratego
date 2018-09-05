@@ -204,7 +204,7 @@ class Reinforce(Agent):
     """
     def __init__(self, team, setup=None):
         super(Reinforce, self).__init__(team=team, setup=setup)
-        self.use_cuda = torch.cuda.is_available()
+        self.device = helpers.get_device()
         self.state_dim = NotImplementedError
         self.action_dim = NotImplementedError
         self.model = NotImplementedError
@@ -286,12 +286,12 @@ class Reinforce(Agent):
             #action = int(np.argmax(q_values))
             action = int(torch.argmax(q_values))
 
-            return torch.LongTensor([[action]]).cuda() if self.use_cuda else torch.LongTensor([[action]])
+            return torch.LongTensor([[action]]).to(self.device)
         else:
             # 1. random from possible (not-illegal) actions
             i = random.randint(0, len(poss_actions) - 1)
             random_action = poss_actions[i]
-            return torch.LongTensor([[random_action]]).cuda() if self.use_cuda else torch.LongTensor([[random_action]])
+            return torch.LongTensor([[random_action]]).to(self.device)
             # 2. truly random (including illegal moves)
             # return torch.LongTensor([[random.randint(0, action_dim - 1)]])
 
@@ -361,7 +361,7 @@ class Reinforce(Agent):
                     condition, value = cond(p)
                     if condition:
                         board_state[tuple([i] + list(pos))] = value  # represent type
-        board_state = torch.FloatTensor(board_state).cuda() if self.use_cuda else torch.FloatTensor(board_state)
+        board_state = torch.FloatTensor(board_state).to(self.device)
         board_state = board_state.view(1, state_dim, self.board.shape[0], self.board.shape[0])  # add dimension for more batches
         return board_state
 
