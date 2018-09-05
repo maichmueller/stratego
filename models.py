@@ -150,7 +150,7 @@ class ELaborateConvFC(nn.Module):
         x = x.view(-1, self.d_in)
         for layer in self.fully_connected_net.linear_layers:
             x = layer(x)
-        return x
+        return F.sigmoid(x)
 
 
 class SmallConv(nn.Module):
