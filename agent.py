@@ -274,7 +274,7 @@ class Reinforce(Agent):
         if sample > p_random:
             self.model.eval()
             state_action_values = self.model(state).view(-1)
-            state_action_values = state_action_values.cpu()
+            # state_action_values = state_action_values.cpu()
             q_values = state_action_values.detach().numpy()
 
             for action in range(len(q_values)):

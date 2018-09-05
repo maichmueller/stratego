@@ -30,18 +30,18 @@ def optimize_model():
 
     # Compute a mask of non-final states and concatenate the batch elements
     non_final_mask = torch.ByteTensor(tuple(map(lambda s: s is not None, batch.next_state)))
-    non_final_next_states = torch.Tensor(torch.cat([s.cpu() for s in batch.next_state if s is not None]))
+    non_final_next_states = torch.Tensor(torch.cat([s for s in batch.next_state if s is not None]))
     state_batch = Variable(torch.cat(batch.state))
     action_batch = Variable(torch.cat(batch.action))
 
-    reward_batch = torch.Tensor(torch.cat(batch.reward)).cpu()
+    reward_batch = torch.Tensor(torch.cat(batch.reward))
 
     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the columns of actions taken
     state_action_values = model(state_batch).gather(1, action_batch)
 
     # Compute V(s_{t+1}) for all next states.
     next_state_values = torch.Tensor(torch.zeros(BATCH_SIZE).float())  # zero for terminal states
-    next_state_values[non_final_mask] = model(non_final_next_states).cpu().max(1)[0] # what would the model predict
+    next_state_values[non_final_mask] = model(non_final_next_states).max(1)[0] # what would the model predict
     with torch.no_grad():
         expected_state_action_values = (next_state_values * GAMMA) + reward_batch  # compute the expected Q values
 
