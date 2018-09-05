@@ -34,7 +34,7 @@ def optimize_model():
     state_batch = Variable(torch.cat(batch.state))
     action_batch = Variable(torch.cat(batch.action))
 
-    reward_batch = Variable(torch.cat(batch.reward))
+    reward_batch = torch.Tensor(torch.cat(batch.reward)).cpu()
 
     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the columns of actions taken
     state_action_values = model(state_batch).gather(1, action_batch)
