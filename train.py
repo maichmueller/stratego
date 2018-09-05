@@ -29,22 +29,36 @@ def optimize_model():
     batch = helpers.Transition(*zip(*transitions))  # transpose the batch
 
     # Compute a mask of non-final states and concatenate the batch elements
-    non_final_mask = torch.ByteTensor(tuple(map(lambda s: s is not None, batch.next_state)))
+    non_final_mask = []
+    non_final_idx = []
+    non_final_next_states = []
+
     all_same_type = [s for s in batch.next_state if s is not None]
     all_same_type = [s.is_cuda for s in all_same_type]
     print(all_same_type)
     print(np.all(all_same_type))
-    non_final_next_states = torch.Tensor(torch.cat([s for s in batch.next_state if s is not None]))
-    state_batch = Variable(torch.cat(batch.state))
-    action_batch = Variable(torch.cat(batch.action))
 
-    reward_batch = torch.Tensor(torch.cat(batch.reward))
+    for idx, state in enumerate(batch.next_state):
+        if state is not None:
+            non_final_mask.append(True)
+            non_final_idx.append(idx)
+            non_final_next_states.append(state)
+        else:
+            non_final_mask.append(False)
+    non_final_mask = torch.ByteTensor(non_final_mask)
+    # non_final_idx = np.array(non_final_idx)
+    non_final_next_states = torch.cat(non_final_next_states)
+
+    state_batch = torch.cat(batch.state)
+    action_batch = torch.cat(batch.action)
+
+    reward_batch = torch.cat(batch.reward)
 
     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the columns of actions taken
     state_action_values = model(state_batch).gather(1, action_batch)
 
     # Compute V(s_{t+1}) for all next states.
-    next_state_values = torch.Tensor(torch.zeros(BATCH_SIZE).float())  # zero for terminal states
+    next_state_values = torch.zeros(BATCH_SIZE).float()  # zero for terminal states
     next_state_values[non_final_mask] = model(non_final_next_states).max(1)[0] # what would the model predict
     with torch.no_grad():
         expected_state_action_values = (next_state_values * GAMMA) + reward_batch  # compute the expected Q values
@@ -180,7 +194,7 @@ def train(env_, num_episodes):
 use_cuda = torch.cuda.is_available()
 print("CUDA WILL BE USED: {}".format(use_cuda))
 PLOT_FREQUENCY = 500
-BATCH_SIZE = 256  # for faster training take a smaller batch size, not too small as batchnorm will not work otherwise
+BATCH_SIZE = 100  # for faster training take a smaller batch size, not too small as batchnorm will not work otherwise
 GAMMA = 0.9  # already favors reaching goal faster, no need for reward_step, the lower GAMMA the faster
 EPS_START = 0.9  # for unstable models take higher randomness first
 EPS_END = 0.01
