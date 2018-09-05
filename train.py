@@ -30,7 +30,7 @@ def optimize_model():
 
     # Compute a mask of non-final states and concatenate the batch elements
     non_final_mask = torch.ByteTensor(tuple(map(lambda s: s is not None, batch.next_state)))
-    non_final_next_states = torch.Tensor(torch.cat([s for s in batch.next_state if s is not None]))
+    non_final_next_states = torch.Tensor(torch.cat([s.cpu() for s in batch.next_state if s is not None]))
     state_batch = Variable(torch.cat(batch.state))
     action_batch = Variable(torch.cat(batch.action))
 
