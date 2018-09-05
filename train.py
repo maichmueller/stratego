@@ -30,10 +30,8 @@ def optimize_model():
 
     # Compute a mask of non-final states and concatenate the batch elements
     non_final_mask = torch.ByteTensor(tuple(map(lambda s: s is not None, batch.next_state)))
-    def check(x):
-        if x is not None:
-            return x.is_cuda
-    all_same_type = np.array(list(map(check, batch.next_state)))
+    all_same_type = [s for s in batch.next_state if s is not None]
+    all_same_type = [s.is_cuda for s in all_same_type]
     print(all_same_type)
     print(np.all(all_same_type))
     non_final_next_states = torch.Tensor(torch.cat([s for s in batch.next_state if s is not None]))
