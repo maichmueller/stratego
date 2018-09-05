@@ -80,7 +80,8 @@ def run_env(env, n_runs=100, show=True):
         if show:
             env.show()
         done = False
-        outcome_sequence = []
+        won_games = 0
+        too_many_steps_games = 0
         while not done:
             state = env.agents[0].board_to_state()  # for the reinforcement agent convert board to state input
             action = env.agents[0].select_action(state, 0.00)
@@ -92,13 +93,12 @@ def run_env(env, n_runs=100, show=True):
                 env.show()
             if done:
                 if won:
-                    outcome_sequence.append(1)
-                    print("Won! Overall: {}/{}".format(sum(outcome_sequence), n_runs))
+                    won_games += 1
                 elif env.steps > 100:
-                    print("Too many steps")
-                else:
-                    print("Lost! Overall: {}/{}".format(sum(outcome_sequence), n_runs))
+                    too_many_steps_games += 1
                 break
+    print("Wins: {}/{}".format(won_games, n_runs))
+    print("Number of cancelled games: {}".format(too_many_steps_games))
 
 
 def train(env_, num_episodes):
@@ -124,7 +124,7 @@ def train(env_, num_episodes):
                 test_agent0.model = copy.deepcopy(agent0.model)
                 test_agent1 = agent.Random(1)
                 test_env = env.Env(test_agent0, test_agent1)
-                run_env(test_env, show=False)
+                run_env(test_env, n_runs=100, show=False)
                 print("\n")
             while True:
                 # act in environment
@@ -158,7 +158,7 @@ def train(env_, num_episodes):
                     # after each episode print stats
                     if VERBOSE > 0:
                         print("Episode {}/{}".format(i_episode, num_episodes))
-                        print("Score: {}%".format(100*round(sum(episode_won)/len(episode_won), ndigits=3)))
+                        print("Score (last 100): {}%".format(100*round(sum(episode_won[-100:])/len(episode_won[-100:]), ndigits=3)))
                         print("Won: {}".format(won))
                         print("Noise: {}".format(p_random))
                         # print("Illegal: {}/{}\n".format(env_.illegal_moves, env_.steps))
