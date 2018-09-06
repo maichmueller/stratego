@@ -560,8 +560,8 @@ class Stratego(Reinforce):
         super(Stratego, self).__init__(team=team)
         self.action_dim = 64  # all pieces 3 * 16 (for pieces: 2, 2, 2) + 4 * 4 for (for pieces 1, 3, 3, 10)
         self.state_dim = len(self.state_represent())
-        filter_amounts = np.array([128, 128])
-        maxpool_layer_pos = np.array([0, 1])
+        filter_amounts = np.array([128, 128, 128, 128])
+        maxpool_layer_pos = np.array([0, 1, 0, 0])
         width, height = game_dim, game_dim
         for pos in maxpool_layer_pos:
             if pos == 1:
@@ -570,8 +570,8 @@ class Stratego(Reinforce):
         d_in = filter_amounts[-1] * width * height
         d_out = self.action_dim
         nr_lin_layers = 5
-        kernel_sizes = np.array([3, 5])
-        dropout_prob_per_layer = np.array([0.5, 0.5])
+        kernel_sizes = np.array([3, 5, 3, 5])
+        dropout_prob_per_layer = np.array([0.5, 0.5, 0, 0])
         start_layer_exponent = 10
         activation_function = torch.nn.ReLU()
         self.model = models.ELaborateConvFC(game_dim=game_dim,
