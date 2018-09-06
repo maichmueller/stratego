@@ -193,7 +193,7 @@ BATCH_SIZE = 1024  # for faster training take a smaller batch size, not too smal
 GAMMA = 0.9  # already favors reaching goal faster, no need for reward_step, the lower GAMMA the faster
 EPS_START = 0.9  # for unstable models take higher randomness first
 EPS_END = 0.01
-EPS_DECAY = 7000
+EPS_DECAY = 2000
 N_SMOOTH = 500  # plotting scores averaged over this number of episodes
 VERBOSE = 1  # level of printed output verbosity:
                 # 1: plot averaged episode stats
