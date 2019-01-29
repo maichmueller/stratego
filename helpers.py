@@ -1,7 +1,6 @@
 import numpy as np
 from scipy import spatial
 from matplotlib import pyplot as plt
-import matplotlib as mpl
 
 from collections import namedtuple
 import random
@@ -11,64 +10,52 @@ from torch.nn import functional as F
 from torch.autograd import Variable
 import copy
 
-BATTLE_MATRIX = dict()
-for i in range(1, 11):
-    for j in range(1, 11):
-        if i < j:
-            BATTLE_MATRIX[i, j] = -1
-            BATTLE_MATRIX[j, i] = 1
-        elif i == j:
-            BATTLE_MATRIX[i, i] = 0
-    BATTLE_MATRIX[i, 0] = 1
-    if i == 3:
-        BATTLE_MATRIX[i, 11] = 1
-    else:
-        BATTLE_MATRIX[i, 11] = -1
-BATTLE_MATRIX[1, 10] = 1
 
-def get_battle_matrix():
-    return BATTLE_MATRIX
+class GameDefaults:
+    def __init__(self, board_size='small'):
+        self.board_size = board_size
 
-def get_device():
-    return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    def set_board_size(self, board_size):
+        self.board_size = board_size
+        if self.board_size in ["small", 5]:
+            self.types_available = np.array([0, 1] + [2] * 3 + [3] * 2 + [10] + [11] * 2)
+            self.obstacle_positions = [(2, 2)]
+            self.game_dim = 5
+        elif self.board_size in ["medium", 7]:
+            self.obstacle_positions = [(3, 1), (3, 5)]
+            self.types_available = np.array([0, 1] + [2] * 5 + [3] * 3 + [4] * 3 + [5] * 2 + [6] + [10] + [11] * 4)
+            self.game_dim = 7
+        elif self.board_size in ["big", 10]:
+            self.obstacle_positions = [(4, 2), (5, 2), (4, 3), (5, 3), (4, 6), (5, 6), (4, 7), (5, 7)]
+            self.types_available = np.array([0, 1] + [2] * 8 + [3] * 5 + [4] * 4 + [5] * 4 + [6] * 4 +
+                                            [7] * 3 + [8] * 2 + [9] * 1 + [10] + [11] * 6)
+            self.game_dim = 10
+
+    def get_game_specs(self):
+        return self.obstacle_positions, self.types_available, self.game_dim
+
+GameDef = GameDefaults()
 
 
-# def is_legal_move_extensive(board, move_to_check):
-#     """
-#     :param move_to_check: array/tuple with the coordinates of the position from and to
-#     :return: True if move is a legal move, False if not
-#     """
-#     if move_to_check is None:
-#         return False
-#     pos_before = move_to_check[0]
-#     pos_after = move_to_check[1]
-#     if not board[pos_after] is None:
-#         if board[pos_after].team == board[pos_before].team:
-#             return False  # cant fight own pieces
-#         if board[pos_after].type == 99:
-#             return False  # cant fight obstacles
-#     if pos_after not in [(i, j) for i in range(5) for j in range(5)]:
-#         return False
-#     if board[pos_before] is None:
-#         return False  # no piece on field to move
-#     move_dist = spatial.distance.cityblock(pos_before, pos_after)
-#     if move_dist > board[pos_before].move_radius:
-#         return False  # move too far for selected piece
-#     if move_dist > 1:
-#         if not pos_before[0] == pos_after[0] and not pos_before[1] == pos_after[1]:
-#             return False  # no diagonal moves allowed
-#         else:
-#             if pos_after[0] == pos_before[0]:
-#                 dist_sign = int(np.sign(pos_after[1] - pos_before[1]))
-#                 for k in list(range(pos_before[1] + dist_sign, pos_after[1], int(dist_sign))):
-#                     if board[(pos_before[0], k)] is not None:
-#                         return False  # pieces in the way of the move
-#             else:
-#                 dist_sign = int(np.sign(pos_after[0] - pos_before[0]))
-#                 for k in range(pos_before[0] + dist_sign, pos_after[0], int(dist_sign)):
-#                     if board[(k, pos_before[1])] is not None:
-#                         return False  # pieces in the way of the move
-#     return True
+
+
+def get_bm():
+    bm = dict()
+    for i in range(1, 11):
+        for j in range(1, 11):
+            if i < j:
+                bm[i, j] = -1
+                bm[j, i] = 1
+            elif i == j:
+                bm[i, i] = 0
+        bm[i, 0] = 1
+        if i == 3:
+            bm[i, 11] = 1
+        else:
+            bm[i, 11] = -1
+    bm[1, 10] = 1
+    return bm
+
 
 def is_legal_move(board, move_to_check):
     """
@@ -79,14 +66,17 @@ def is_legal_move(board, move_to_check):
         return False
     pos_before = move_to_check[0]
     pos_after = move_to_check[1]
+
     for x in (pos_before[0], pos_before[1], pos_after[0], pos_after[1]):
         if not -1 < x < board.shape[0]:
             return False
+
     if not board[pos_after] is None:
         if board[pos_after].team == board[pos_before].team:
             return False  # cant fight own pieces
         if board[pos_after].type == 99:
             return False  # cant fight obstacles
+
     move_dist = spatial.distance.cityblock(pos_before, pos_after)
     if move_dist > 1:
         if pos_after[0] == pos_before[0]:
@@ -99,6 +89,7 @@ def is_legal_move(board, move_to_check):
             for k in range(pos_before[0] + dist_sign, pos_after[0], int(dist_sign)):
                 if board[(k, pos_before[1])] is not None:
                     return False  # pieces in the way of the move
+
     return True
 
 
@@ -115,13 +106,21 @@ def print_board(board, same_figure=True):
     else:
         plt.figure()
     plt.clf()
-    layout = np.add.outer(range(game_dim), range(game_dim)) % 2  # chess-pattern board
-    plt.imshow(layout, cmap=plt.cm.magma, alpha=.5, interpolation='nearest')  # plot board
-    for pos in ((i, j) for i in range(game_dim) for j in range(game_dim)):  # go through all board positions
+    # layout = np.add.outer(range(game_dim), range(game_dim)) % 2  # chess-pattern board
+    layout = np.zeros((game_dim, game_dim))
+    plt.imshow(layout, cmap=plt.cm.magma, alpha=.0, interpolation='nearest')  # plot board
+
+    # plot lines separating each cell for visualization
+    for i in range(game_dim + 1):
+        plt.plot([i-.5, i-.5], [-.5, game_dim-.5], color='k', linestyle='-', linewidth=1)
+        plt.plot([-.5, game_dim-.5], [i-.5, i-.5], color='k', linestyle='-', linewidth=1)
+
+    # go through all board positions and print the respective markers
+    for pos in ((i, j) for i in range(game_dim) for j in range(game_dim)):
         piece = board[pos]  # select piece on respective board position
         # decide which marker type to use for piece
         if piece is not None:
-            piece.hidden = False  # omniscient view
+            # piece.hidden = False  # omniscient view
 
             if piece.team == 1:
                 color = 'b'  # blue: player 1
@@ -129,29 +128,29 @@ def print_board(board, same_figure=True):
                 color = 'r'  # red: player 0
             else:
                 color = 'k'  # black: obstacle
+
             if piece.can_move:
                 form = 'o'  # circle: for movable
             else:
                 form = 's'  # square: either immovable or unknown piece
             if piece.type == 0:
                 form = 'X'  # cross: flag
-            # if piece.team == 0:
-            #     piece.hidden = False
-            # else:
-            #     form = 's'
+
             piece_marker = ''.join(('-', color, form))
-            plt.plot(pos[1], pos[0], piece_marker, markersize=37)  # plot markers for pieces
-            plt.annotate(str(piece), xy=(pos[1], pos[0]), size=20, ha="center", va="center")  # piece type on marker
-    #plt.gca().invert_yaxis()  # own pieces down, others up
-    #plt.pause(1)
-    plt.pause(.2)
+            alpha = 0.3 if piece.hidden else 1
+            plt.plot(pos[1], pos[0], piece_marker, markersize=37, alpha=alpha)  # plot marker
+            # piece type written on marker center
+            plt.annotate(str(piece), xy=(pos[1], pos[0]), color='w', size=20, ha="center", va="center")
+    # invert y makes numbering more natural; puts agent 1 on bottom, 0 on top !
+    plt.gca().invert_yaxis()
+    plt.pause(1)
     plt.show(block=False)
-    #plt.show(block=True)
+
 
 
 def get_poss_moves(board, team):
     """
-    :return: List of possible actions for agent of team
+    :return: List of possible actions for agent of team 'team'
     """
     game_dim = board.shape[0]
     actions_possible = []
@@ -178,9 +177,6 @@ def get_poss_moves(board, team):
                             move = (pos, pos_to)
                             if is_legal_move(board, move):
                                 actions_possible.append(move)
-    if not actions_possible:
-        #print_board(board)
-        pass
     return actions_possible
 
 
@@ -248,7 +244,6 @@ def plot_stats_all(episode_won, end_episode):
     average = [0]
     for i in range(1, end_episode+1):
         means = scores_t.unfold(0, i, 1).mean(1).view(-1)
-        #means = torch.cat((torch.zeros(i-1), means))
         average.append(list(means.numpy())[0])
     plt.plot(average)
     plt.title('Average Win Percentage over last {} Episodes: {}'.format(end_episode, int(average[-1]*100)/100))
@@ -364,71 +359,3 @@ def visualize_features(n_points, environment, env_name):
     print("Plotting t-SNE embedding")
     plot_embedding(X_tsne, state_values, choice)
     plt.savefig('{}-tsne.png'.format(env_name))
-
-
-class GameReplay:
-    def __init__(self, board):
-        self.initialBoard = copy.deepcopy(board)
-        self.curr_board = copy.deepcopy(board)
-        self.pieces_team_0 = []
-        self.pieces_team_1 = []
-        for pos, piece in np.ndenumerate(self.initialBoard):
-            if piece is not None:
-                if piece.team == 0:
-                    self.pieces_team_0.append(piece)
-                else:
-                    self.pieces_team_1.append(piece)
-        self.moves_and_pieces_in_round = dict()
-        self.team_of_round = dict()
-
-    def add_move(self, move, pieces, team, round):
-        self.moves_and_pieces_in_round[round] = (move, pieces[0], pieces[1])
-        self.team_of_round[round] = team
-        self.curr_board = self.do_move(self.curr_board, move)
-
-    def restore_to_round(self, round):
-        round_dist = max(self.moves_and_pieces_in_round.keys()) - round
-        board_ = self.curr_board
-        if round_dist > round:  # deciding which way around to restore: from the beginning or the end
-            # restore from end
-            board_ = self.undo_last_n_moves(n=round, board=board_)
-        else:
-            # restore from beginning
-            board_ = copy.deepcopy(self.initialBoard)
-            for played_round in range(round):
-                board_ = self.do_move(board_, self.moves_and_pieces_in_round[played_round][0])
-        return board_
-
-    def undo_last_n_moves(self, n, board):
-        """
-        Undo the last n moves in the memory. Return the updated board.
-        :param board: numpy array
-        :param n: int number of moves to undo
-        :return: board
-        """
-        max_round = max(self.moves_and_pieces_in_round.keys())
-        for k in range(n):
-            (from_, to_), piece_from, piece_to = self.moves_and_pieces_in_round[max_round - k]
-            board[from_] = piece_from
-            board[to_] = piece_to
-            piece_from.position = from_
-            piece_to.position = to_
-        return board
-
-    def do_move(self, board, move):
-        """
-        :param move: tuple or array consisting of coordinates 'from' at 0 and 'to' at 1
-        :param board: numpy array representing the board
-        """
-        from_ = move[0]
-        to_ = move[1]
-        if board[to_] is not None:  # Target field is not empty, then has to fight
-            fight_outcome = BATTLE_MATRIX[board[from_].type, board[to_].type]
-            if fight_outcome == 1:
-                board[to_] = board[from_]
-            elif fight_outcome == 0:
-                board[to_] = None
-        else:
-            board[to_] = board[from_]
-        board[from_] = None
-        return board

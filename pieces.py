@@ -30,20 +30,14 @@ class Piece:
             self.move_radius = 1
 
     def __str__(self):  # for printing pieces on the board return type of piece
-        if self.hidden:
-            return "-{}/{}".format(self.team, self.type)
+        if self.type == 99:
+            type_ = ''
         else:
-            # if self.type == 0:
-            #     return "f"
-            # if self.type == 11:
-            #     return "b"
-            if self.type == 99:
-                return "X"
-            else:
-                return "{}/{}".format(self.team, self.type)
+            type_ = self.type
+        return f'{type_}'
 
     def change_position(self, new_pos):
-        #self.positions_history.append(new_pos)
+        # self.positions_history.append(new_pos)
         self.position = new_pos
         self.has_moved = True
 

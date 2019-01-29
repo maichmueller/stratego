@@ -122,7 +122,7 @@ class ELaborateConvFC(nn.Module):
                  activation_function=nn.ReLU()):
         super().__init__()
         self.conv_net = NNConvolutional(channels_in, filter_amounts,
-                 kernel_sizes, maxpool_layer_pos, dropout_prob_per_layer)
+                                        kernel_sizes, maxpool_layer_pos, dropout_prob_per_layer)
         self.d_in = d_in
         self.fully_connected_net = NNLinear(d_in, d_out, nr_lin_layers,
                                             start_layer_exponent, activation_function)
