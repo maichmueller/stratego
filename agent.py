@@ -9,6 +9,25 @@ import helpers
 import torch
 import models
 
+import argparse
+import os
+import shutil
+import time
+import random
+import numpy as np
+import math
+import sys
+from utils import *
+from pytorch_classification.utils import Bar, AverageMeter
+
+import argparse
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torchvision import datasets, transforms
+
+
 
 class Agent:
     """
@@ -499,16 +518,13 @@ class NNetWrapper:
         self.board_x, self.board_y = game.getBoardSize()
         self.action_size = game.getActionSize()
 
-        if args.cuda:
-            self.nnet.cuda()
-
     def train(self, examples):
         """
         examples: list of examples, each example is of form (board, pi, v)
         """
         optimizer = optim.Adam(self.nnet.parameters())
 
-        for epoch in range(args.epochs):
+        for epoch in range(epochs):
             print('EPOCH ::: ' + str(epoch+1))
             self.nnet.train()
             data_time = AverageMeter()
