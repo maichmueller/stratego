@@ -1,6 +1,7 @@
 import time
 import math
 import random
+from cythonize import helpers
 
 
 def random_policy(state):
@@ -74,10 +75,10 @@ class MCTS:
 
     @staticmethod
     def expand(node):
-        actions = node.state.get_possible_actions()
+        actions = helpers.get_poss_moves(node.state.board, node.team)
         for action in actions:
             if action not in node.children.keys():
-                new_node = TreeNode(node.state.take_action(action), node)
+                new_node = TreeNode(node.state.do_move(action), node)
                 node.children[action] = new_node
                 if len(actions) == len(node.children):
                     node.is_fully_expanded = True

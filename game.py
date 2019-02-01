@@ -2,8 +2,9 @@ import copy
 
 import numpy as np
 
-import helpers
+from cythonize import helpers
 import pieces
+from collections import Counter, defaultdict
 
 
 class Game:
@@ -16,13 +17,18 @@ class Game:
         self.fixed_setups = fixed_setups
 
         helpers.GameDef.set_board_size(board_size)
-        _, self.types_available, self.game_dim = helpers.GameDef.get_game_specs()
+        self.obstacle_positions, self.types_available, self.game_dim = helpers.GameDef.get_game_specs()
 
         if not fixed_setups:
             agent0.setup = self.__draw_random_setup(self.types_available, 0, self.game_dim)
             agent1.setup = self.__draw_random_setup(self.types_available, 1, self.game_dim)
 
-        self.state = GameState(setup0=agent0.setup, setup1=agent1.setup)
+        if agent0.setup is not None and agent1.setup is not None:
+            board = self._build_board_from_setups(agent0.setup, agent1.setup)
+        else:
+            raise ValueError('Missing board information.')
+
+        self.state = GameState(board)
         agent0.install_board(self.state.board, reset=True)
         agent1.install_board(self.state.board, reset=True)
 
@@ -30,12 +36,20 @@ class Game:
 
         self.move_count = 1  # agent 1 starts
 
-        self.dead_pieces = []
-        dead_pieces_dict = dict()
-        for type_ in set(self.types_available):
-            dead_pieces_dict[type_] = 0
-        self.dead_pieces.append(dead_pieces_dict)
-        self.dead_pieces.append(copy.deepcopy(dead_pieces_dict))
+    def _build_board_from_setups(self, setup0, setup1):
+        board = np.empty((self.game_dim, self.game_dim), dtype=object)
+
+        for setup in (setup0, setup1):
+            for idx, piece in np.ndenumerate(setup):
+                if piece is not None:
+                    board[piece.position] = piece
+
+        for pos in self.obstacle_positions:
+            obs = pieces.Piece(99, 99, pos)
+            obs.hidden = False
+            board[pos] = obs
+
+        return board
 
     def reset(self):
         self.__init__(self.agents[0], self.agents[1], self.board_size)
@@ -51,7 +65,7 @@ class Game:
         while not game_over:
             print_board(self.state.board)
             rewards = self.run_step()
-            if rewards is not None:
+            if rewards:
                 game_over = True
         print_board(self.state.board)
         return rewards
@@ -64,22 +78,24 @@ class Game:
         # test if agent can't move anymore
         if new_move is None:
             if turn == 1:
-                return 2, -2  # agent0 wins
+                return 2  # agent0 wins
             else:
-                return -2, 2  # agent1 wins
-        self.do_move(new_move)  # execute agent's choice
+                return -2  # agent1 wins
+
+        # let agents update their boards
+        for _agent in self.agents:
+            _agent.do_move(new_move, true_gameplay=True)
+        self.state.do_move(new_move)  # execute agent's choice
 
         # test if game is over
-        if self.state.is_terminal(flag_only=True):  # flag discovered
-            if turn == 1:
-                return -1, 1  # agent1 wins
-            elif turn == 0:
-                return 1, -1  # agent0 wins
+        terminal = self.state.is_terminal(flag_only=True, move_count=self.move_count)
+        if terminal:  # flag discovered, or draw
+            return terminal
 
         self.move_count += 1
         for agent_ in self.agents:
             agent_.move_count = self.move_count
-        return 0, 0
+        return 0
 
     @staticmethod
     def __draw_random_setup(types_available, team, game_dim):
@@ -127,102 +143,39 @@ class Game:
                 setup_agent[pos] = pieces.Piece(types_draw[idx], 1, pos)
         return setup_agent
 
-    def do_move(self, move):
-        """
-        :param move: tuple or array consisting of coordinates 'from' at 0 and 'to' at 1
-        """
-        from_ = move[0]
-        to_ = move[1]
-
-        fight_outcome = None
-
-        # let agents update their boards too
-        for _agent in self.agents:
-            _agent.do_move(move, true_gameplay=True)
-
-        state = self.state
-        board = state.board
-
-        # if not helpers.is_legal_move(self.board, move):
-        #    return False  # illegal move chosen
-
-        board[from_].has_moved = True
-
-        if not board[to_] is None:  # Target field is not empty, then has to fight
-            board[from_].hidden = board[to_].hidden = False
-            fight_outcome = self.fight(board[from_], board[to_])
-            if fight_outcome is None:
-                print('Warning, cant let pieces of same team fight!')
-                return False
-            elif fight_outcome == 1:
-                state.update_board(to_, board[from_])
-                state.update_board(from_, None)
-            elif fight_outcome == 0:
-                state.update_board(to_, None)
-                state.update_board(from_, None)
-            else:
-                state.update_board(from_, None)
-                state.update_board(to_, board[to_])
-        else:
-            state.update_board(to_, board[from_])
-            state.update_board(from_, None)
-        self.game_replay.add_move(move, (board[from_], board[to_]), self.move_count % 2, self.move_count)
-        return fight_outcome
-
-    def fight(self, piece_att, piece_def):
-        """
-        Determine the outcome of a fight between two pieces:
-        1: win, 0: tie, -1: loss
-        add dead pieces to deadFigures
-        """
-        outcome = Game.bm[piece_att.type, piece_def.type]
-        if outcome == 1:
-            self.dead_pieces[piece_def.team][piece_def.type] += 1
-        elif outcome == 0:
-            self.dead_pieces[piece_def.team][piece_def.type] += 1
-            self.dead_pieces[piece_att.team][piece_att.type] += 1
-        elif outcome == -1:
-            self.dead_pieces[piece_att.team][piece_att.type] += 1
-        return outcome
-
 
 class GameState:
-    def __init__(self, board=None, setup0=None, setup1=None, dead_pieces=None):
+    def __init__(self, board=None, dead_pieces=None, move_count=None):
 
         self.obstacle_positions = None
-        self.dead_pieces = dead_pieces
-
-        if board is None:
-            if setup0 is not None and setup1 is not None:
-                nr_pieces = [10, 21, 40].index(setup1.size)
-                self.game_dim = [5, 7, 10][nr_pieces]
-                self.obstacle_positions = helpers.GameDef.get_game_specs()[0]
-                self.board = self._build_board_from_setups(setup0, setup1)
-            else:
-                raise ValueError('Missing board information.')
+        if dead_pieces is not None:
+            self.dead_pieces = dead_pieces
         else:
-            self.board = board
-            self.game_dim = board.shape[0]
-            self.obstacle_positions = helpers.GameDef.get_game_specs()[0]
+            self.dead_pieces = (dict(), dict())
+        self.board = board
+        self.game_dim = board.shape[0]
+        self.obstacle_positions = helpers.GameDef.get_game_specs()[0]
+
+        self.move_count = move_count
 
         self.terminal = 0
         self.check_terminal()
         self.terminal_checked = True
 
-    def _build_board_from_setups(self, setup0, setup1):
-        board = np.empty((self.game_dim, self.game_dim), dtype=object)
+        self.dead_pieces = dict()
+        pieces0, pieces1 = defaultdict(int), defaultdict(int)
+        for piece in board.flatten():
+            if piece is not None:
+                if piece.team:
+                    pieces1[piece.type] += 1
+                else:
+                    pieces0[piece.type] += 1
 
-        for setup in (setup0, setup1):
-            for idx, piece in np.ndenumerate(setup):
-                if piece is not None:
-                    board[piece.position] = piece
-
-        for pos in self.obstacle_positions:
-            obs = pieces.Piece(99, 99, pos)
-            obs.hidden = False
-            board[pos] = obs
-
-        return board
+        for pcs, team in zip((pieces0, pieces0), (0, 1)):
+            dead_pieces_dict = dict()
+            for type_, freq in Counter(helpers.GameDef.get_game_specs()[1]).items():
+                dead_pieces_dict[type_] = freq - pcs[type_]
+            self.dead_pieces[team] = dead_pieces_dict
 
     def update_board(self, pos, piece):
         """
@@ -236,7 +189,7 @@ class GameState:
         return
 
     def check_terminal(self, flag_only=False, turn=None):
-        if self.dead_pieces is None:
+        if not any(self.dead_pieces):
             flags = sum([piece.team + 1 for piece in self.board.flatten() if piece is not None and piece.type == 0])
             if flags != 3:  # == 3 only if both flag 0 and flag 1 are present
                 if flags == 1:  # agent 1 flag has been captured
@@ -256,7 +209,63 @@ class GameState:
             elif not helpers.get_poss_moves(self.board, (turn + 1) % 2):
                 self.terminal = 2  # agent 0 wins by moves
 
+        if self.move_count is not None and self.move_count > 500:
+            self.terminal = 404
+
         self.terminal_checked = True
+
+    def do_move(self, move):
+        """
+        :param move: tuple or array consisting of coordinates 'from' at 0 and 'to' at 1
+        """
+        from_ = move[0]
+        to_ = move[1]
+
+        fight_outcome = None
+
+        board = self.board
+
+        # if not helpers.is_legal_move(self.board, move):
+        #    return False  # illegal move chosen
+
+        board[from_].has_moved = True
+
+        if not board[to_] is None:  # Target field is not empty, then has to fight
+            board[from_].hidden = board[to_].hidden = False
+            fight_outcome = self.fight(board[from_], board[to_])
+            if fight_outcome is None:
+                print('Warning, cant let pieces of same team fight!')
+                return False
+            elif fight_outcome == 1:
+                self.update_board(to_, board[from_])
+                self.update_board(from_, None)
+            elif fight_outcome == 0:
+                self.update_board(to_, None)
+                self.update_board(from_, None)
+            else:
+                self.update_board(from_, None)
+                self.update_board(to_, board[to_])
+        else:
+            self.update_board(to_, board[from_])
+            self.update_board(from_, None)
+        # self.game_replay.add_move(move, (board[from_], board[to_]), self.move_count % 2, self.move_count)
+        return fight_outcome
+
+    def fight(self, piece_att, piece_def):
+        """
+        Determine the outcome of a fight between two pieces:
+        1: win, 0: tie, -1: loss
+        add dead pieces to deadFigures
+        """
+        outcome = Game.bm[piece_att.type, piece_def.type]
+        if outcome == 1:
+            self.dead_pieces[piece_def.team][piece_def.type] += 1
+        elif outcome == 0:
+            self.dead_pieces[piece_def.team][piece_def.type] += 1
+            self.dead_pieces[piece_att.team][piece_att.type] += 1
+        elif outcome == -1:
+            self.dead_pieces[piece_att.team][piece_att.type] += 1
+        return outcome
 
     def is_terminal(self, **kwargs):
         if not self.terminal_checked:

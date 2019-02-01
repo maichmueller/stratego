@@ -2,10 +2,10 @@ import copy as cp
 from game import Game
 import numpy as np
 from matplotlib import pyplot as plt
-import helpers
+from cythonize import helpers
 
 
-class Trainer(Game):
+class GameCoach(Game):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -18,7 +18,7 @@ class Trainer(Game):
         self.reward_illegal = 0  # punish illegal moves
         self.reward_step = 0  # negative reward per agent step
         self.reward_win = 1  # win game
-        self.reward_loss = 0  # lose game
+        self.reward_loss = -1  # lose game
         self.reward_kill = 0  # kill enemy figure reward
         self.reward_die = 0  # lose to enemy figure
 
@@ -35,22 +35,21 @@ class Trainer(Game):
         if new_move is None:
             self._update_terminal_moves_rewards(turn)
             if turn == 1:
-                return 2, -2  # agent0 wins
+                return 2  # agent0 wins
             else:
-                return -2, 2  # agent1 wins
+                return -2  # agent1 wins
 
-        outcome = self.do_move(new_move)  # execute agent's choice
+        for _agent in self.agents:
+            _agent.do_move(new_move, true_gameplay=True)
+        outcome = self.state.do_move(new_move)  # execute agent's choice
 
         if outcome is not None:
             self._update_fight_rewards(outcome, turn)
 
         # test if game is over
-        if self.state.is_terminal(flag_only=True):  # flag discovered
-            self._update_terminal_flag_rewards(turn)
-            if turn == 1:
-                return -1, 1  # agent1 wins
-            elif turn == 0:
-                return 1, -1  # agent0 wins
+        terminal = self.state.is_terminal(flag_only=True, move_count=self.move_count)
+        if terminal:  # flag discovered, or draw
+            return terminal
 
         self.move_count += 1
         for agent_ in self.agents:

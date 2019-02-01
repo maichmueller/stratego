@@ -138,23 +138,23 @@ def simulation(game_, num_simulations, setup_0=None, setup_1=None, show_game=Fal
         print("Game number: " + str(simu + 1))
         for step in range(2000):
             game_reward = game_.run_game(show_game)
-            if game_reward[0] != 0:
-                if game_reward[0] == 1:  # red won by finding flag
+            if game_reward != 0:
+                if game_reward == 1:  # red won by finding flag
                     game_times_0.append(timer() - game_time_s)
                     red_won += 1
                     red_wins_bc_flag += 1
                     rounds_counter_win_agent_0.append(game_.move_count)
-                elif game_reward[0] == 2:  # red won by moves
+                elif game_reward == 2:  # red won by moves
                     game_times_0.append(timer() - game_time_s)
                     red_won += 1
                     red_wins_bc_no_moves_left += 1
                     rounds_counter_win_agent_0.append(game_.move_count)
-                elif game_reward[0] == -1:  # blue won by finding flag
+                elif game_reward == -1:  # blue won by finding flag
                     game_times_1.append(timer() - game_time_s)
                     blue_won += 1
                     blue_wins_bc_flag += 1
                     rounds_counter_win_agent_1.append(game_.move_count)
-                elif game_reward[0] == -2:  # blue won by moves
+                elif game_reward == -2:  # blue won by moves
                     game_times_1.append(timer() - game_time_s)
                     blue_won += 1
                     blue_wins_bc_no_moves_left += 1
@@ -314,4 +314,4 @@ def simu_env(env, num_simulations=1000, watch=True):
 # for testing the full game (can use different setup functions)
 
 game_ = game.Game(agent.MiniMax(0), agent.MiniMax(1), board_size="small")
-simulation(game_, num_simulations=100, show_game=False)
+simulation(game_, num_simulations=100, show_game=True)
