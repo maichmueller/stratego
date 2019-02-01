@@ -1,8 +1,8 @@
-import copy
+from copy import deepcopy
 
 import numpy as np
 
-from cythonize import helpers
+from cythonized import helpers
 import pieces
 from collections import Counter, defaultdict
 
@@ -19,30 +19,44 @@ class Game:
         helpers.GameDef.set_board_size(board_size)
         self.obstacle_positions, self.types_available, self.game_dim = helpers.GameDef.get_game_specs()
 
-        if not fixed_setups:
-            agent0.setup = self.__draw_random_setup(self.types_available, 0, self.game_dim)
-            agent1.setup = self.__draw_random_setup(self.types_available, 1, self.game_dim)
-
-        if agent0.setup is not None and agent1.setup is not None:
-            board = self._build_board_from_setups(agent0.setup, agent1.setup)
-        else:
-            raise ValueError('Missing board information.')
-
-        self.state = GameState(board)
-        agent0.install_board(self.state.board, reset=True)
-        agent1.install_board(self.state.board, reset=True)
-
-        self.game_replay = GameReplay(self.state.board)
+        self.state = None
+        self.game_replay = None
+        self.reset()
 
         self.move_count = 1  # agent 1 starts
+
+        # reinforcement learning attributes
+        self.score = 0
+        self.reward = 0
+        self.steps = 0
+        self.death_steps = None
+        self.illegal_moves = 0
+
+        self.reward_illegal = 0  # punish illegal moves
+        self.reward_step = 0  # negative reward per agent step
+        self.reward_win = 1  # win game
+        self.reward_loss = -1  # lose game
+        self.reward_kill = 0  # kill enemy figure reward
+        self.reward_die = 0  # lose to enemy figure
+
+        self.action_rep_dict, self.action_rep_moves, self.action_rep_pieces = [None] * 3
+
+    def __str__(self):
+        return '-'.join((repr(piece) for piece in self.state.board.flatten()))
+
+    def __hash__(self):
+        return hash(str(self))
 
     def _build_board_from_setups(self, setup0, setup1):
         board = np.empty((self.game_dim, self.game_dim), dtype=object)
 
         for setup in (setup0, setup1):
+            pieces_version = defaultdict(int)
             for idx, piece in np.ndenumerate(setup):
                 if piece is not None:
-                    board[piece.position] = piece
+                    pieces_version[piece.type] += 1
+                    piece.version = pieces_version[piece.type]
+                    board[piece.position] = deepcopy(piece)
 
         for pos in self.obstacle_positions:
             obs = pieces.Piece(99, 99, pos)
@@ -52,7 +66,22 @@ class Game:
         return board
 
     def reset(self):
-        self.__init__(self.agents[0], self.agents[1], self.board_size)
+        if not self.fixed_setups:
+            self.agents[0].setup = self._draw_random_setup(self.types_available, 0, self.game_dim)
+            self.agents[1].setup = self._draw_random_setup(self.types_available, 1, self.game_dim)
+
+        if self.agents[0].setup is not None and self.agents[1].setup is not None:
+            board = self._build_board_from_setups(self.agents[0].setup, self.agents[1].setup)
+        else:
+            raise ValueError('Missing board information.')
+
+        self.state = GameState(board)
+        self.agents[0].install_board(self.state.board, reset=True)
+        self.agents[1].install_board(self.state.board, reset=True)
+
+        self.game_replay = GameReplay(self.state.board)
+
+        self.move_count = 1  # agent 1 starts
 
     def run_game(self, show=False):
         game_over = False
@@ -70,10 +99,13 @@ class Game:
         print_board(self.state.board)
         return rewards
 
-    def run_step(self):
+    def run_step(self, move=None):
         turn = self.move_count % 2  # player 1 or player 0
 
-        new_move = self.agents[turn].decide_move()
+        if move is None:
+            new_move = self.agents[turn].decide_move()
+        else:
+            new_move = move
 
         # test if agent can't move anymore
         if new_move is None:
@@ -85,7 +117,10 @@ class Game:
         # let agents update their boards
         for _agent in self.agents:
             _agent.do_move(new_move, true_gameplay=True)
-        self.state.do_move(new_move)  # execute agent's choice
+        outcome = self.state.do_move(new_move)  # execute agent's choice
+
+        if outcome is not None:
+            self._update_fight_rewards(outcome, turn)
 
         # test if game is over
         terminal = self.state.is_terminal(flag_only=True, move_count=self.move_count)
@@ -98,7 +133,7 @@ class Game:
         return 0
 
     @staticmethod
-    def __draw_random_setup(types_available, team, game_dim):
+    def _draw_random_setup(types_available, team, game_dim):
         """
         Draw a random setup from the set of types types_available after placing the flag
         somewhere in the last row of the board of the side of 'team', or behind the obstacle.
@@ -142,6 +177,75 @@ class Game:
                 pos = positions_agent_1[idx]
                 setup_agent[pos] = pieces.Piece(types_draw[idx], 1, pos)
         return setup_agent
+
+    def _update_fight_rewards(self, outcome, turn):
+        if outcome == 1:
+            if self.agents[turn].learner:
+                self.agents[turn].add_reward(self.reward_kill)
+            if self.agents[(turn + 1) % 2].learner:
+                self.agents[(turn + 1) % 2].add_reward(self.reward_die)
+        if outcome == -1:
+            turn += 1
+            if self.agents[turn].learner:
+                self.agents[turn].add_reward(self.reward_kill)
+            if self.agents[(turn + 1) % 2].learner:
+                self.agents[(turn + 1) % 2].add_reward(self.reward_die)
+        else:
+            if self.agents[turn].learner:
+                self.agents[turn].add_reward(self.reward_kill)
+                self.agents[turn].add_reward(self.reward_die)
+            if self.agents[(turn + 1) % 2].learner:
+                self.agents[(turn + 1) % 2].add_reward(self.reward_kill)
+                self.agents[(turn + 1) % 2].add_reward(self.reward_die)
+
+    def _update_terminal_moves_rewards(self, turn):
+        if self.agents[(turn + 1) % 2].learner:
+            self.agents[(turn + 1) % 2].add_reward(self.reward_win)
+        if self.agents[turn].learner:
+            self.agents[turn].add_reward(self.reward_loss)
+
+    def _update_terminal_flag_rewards(self, turn):
+        if self.agents[turn].learner:
+            self.agents[turn].add_reward(self.reward_win)
+        if self.agents[(turn + 1) % 2].learner:
+            self.agents[(turn + 1) % 2].add_reward(self.reward_loss)
+
+    def get_action_rep(self):
+        if any([x is None for x in (self.action_rep_dict, self.action_rep_moves, self.action_rep_pieces)]):
+            action_rep_pieces = []
+            action_rep_moves = []
+            action_rep_dict = dict()
+            for type_ in self.types_available:
+                version = 1
+                type_v = str(type_) + "_" + str(version)
+                while type_v in action_rep_pieces:
+                    version += 1
+                    type_v = type_v[:-1] + str(version)
+                if type_ in [0, 11]:
+                    continue
+                elif type_ == 2:
+                    actions = [(0 + i, 0) for i in range(1, self.game_dim)] + \
+                              [(0, i) for i in range(1, self.game_dim)] + \
+                              [(- i, 0) for i in range(1, self.game_dim)] + \
+                              [(0, - i) for i in range(1, self.game_dim)]
+                    len_acts = len(actions)
+                    len_acts_sofar = len(action_rep_moves)
+                    action_rep_dict[type_v] = list(range(len_acts_sofar, len_acts_sofar + len_acts))
+                    action_rep_pieces += [type_v] * len_acts
+                    action_rep_moves += actions
+                else:
+                    actions = [(1, 0),
+                               (0, 1),
+                               (-1, 0),
+                               (0, - 1)]
+                    action_rep_dict[type_v] = list(range(len(action_rep_moves), len(action_rep_moves) + 4))
+                    action_rep_pieces += [type_v] * 4
+                    action_rep_moves += actions
+            self.action_rep_dict = action_rep_dict
+            self.action_rep_moves = action_rep_moves
+            self.action_rep_pieces = action_rep_pieces
+
+        return self.action_rep_dict, self.action_rep_moves, self.action_rep_pieces
 
 
 class GameState:
@@ -198,8 +302,10 @@ class GameState:
                     self.terminal = -1  # agent 1 wins by flag
 
         else:
-            self.terminal =  1 * (self.dead_pieces[0][0] == 1)
-            self.terminal = -1 * (self.dead_pieces[1][0] == 1)
+            if self.dead_pieces[0][0] == 1:
+                self.terminal = 1
+            elif self.dead_pieces[1][0] == 1:
+                self.terminal = -1
 
         if not flag_only:
             if turn is None:
@@ -275,8 +381,8 @@ class GameState:
 
 class GameReplay:
     def __init__(self, board):
-        self.initialBoard = copy.deepcopy(board)
-        self.curr_board = copy.deepcopy(board)
+        self.initialBoard = deepcopy(board)
+        self.curr_board = deepcopy(board)
         self.pieces_team_0 = []
         self.pieces_team_1 = []
         for pos, piece in np.ndenumerate(self.initialBoard):
@@ -301,7 +407,7 @@ class GameReplay:
             board_ = self.undo_last_n_moves(n=round, board=board_)
         else:
             # restore from beginning
-            board_ = copy.deepcopy(self.initialBoard)
+            board_ = deepcopy(self.initialBoard)
             for played_round in range(round):
                 board_ = self.do_move(board_, self.moves_and_pieces_in_round[played_round][0])
         return board_

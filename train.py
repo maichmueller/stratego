@@ -8,7 +8,7 @@ import torch.optim as optim
 from torch.autograd import Variable
 
 import agent
-import trainer
+import coach
 import helpers
 import pickle
 import copy
@@ -123,7 +123,7 @@ def train(env_, num_episodes):
                 test_agent0 = agent.Stratego(0)
                 test_agent0.model = copy.deepcopy(agent0.model)
                 test_agent1 = agent.Random(1)
-                test_env = trainer.Env(test_agent0, test_agent1)
+                test_env = coach.Env(test_agent0, test_agent1)
                 run_env(test_env, n_runs=100, show=False)
                 print("\n")
             while True:
@@ -206,7 +206,7 @@ agent0 = agent.Stratego(0)
 agent1 = agent.Random(1)
 # agent1 = agent.Random(1)
 # agent1.model = agent0.model  # if want to train by self-play
-env__ = trainer.Trainer(agent0, agent1, False, "custom", [0, 1])
+env__ = coach.Trainer(agent0, agent1, False, "custom", [0, 1])
 env_name = "stratego"
 
 model = env__.agents[0].model  # optimize model of agent0

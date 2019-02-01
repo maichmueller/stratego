@@ -36,6 +36,9 @@ class Piece:
             type_ = self.type
         return f'{type_}'
 
+    def __repr__(self):
+        return f'{self.team}_{self.type}_{1*self.hidden}'
+
     def change_position(self, new_pos):
         # self.positions_history.append(new_pos)
         self.position = new_pos

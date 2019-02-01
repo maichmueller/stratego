@@ -20,7 +20,7 @@ import numpy as np
 import game
 import pieces
 import agent
-import trainer
+import coach
 import helpers
 from timeit import default_timer as timer
 import re

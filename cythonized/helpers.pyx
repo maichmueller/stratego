@@ -14,8 +14,12 @@ import copy
 class GameDefaults:
     def __init__(self, board_size='small'):
         self.board_size = board_size
+        self.set_board_size(board_size)
 
     def set_board_size(self, board_size):
+        if board_size == self.board_size:
+            return
+
         self.board_size = board_size
         if self.board_size in ["small", 5]:
             self.types_available = np.array([0, 1] + [2] * 3 + [3] * 2 + [10] + [11] * 2)
@@ -35,8 +39,6 @@ class GameDefaults:
         return self.obstacle_positions, self.types_available, self.game_dim
 
 GameDef = GameDefaults()
-
-
 
 
 def get_bm():
@@ -92,6 +94,43 @@ def is_legal_move(board, move_to_check):
 
     return True
 
+def get_act_repr_mask(board, team, action_rep_dict, action_rep_moves, action_rep_pieces):
+    """
+    :return: List of possible actions for agent of team 'team'
+    """
+    game_dim = board.shape[0]
+    actions_mask = np.zeros(len(action_rep_moves))
+    for pos, piece in np.ndenumerate(board):
+        if piece is not None:  # board position has a piece on it
+            if piece.team == team:
+                # check which moves are possible
+                if piece.can_move:
+                    p_range = np.array(action_rep_dict[str(piece.type) + "_" + str(piece.version)])
+                    p_moves = [action_rep_moves[i] for i in p_range]
+                    if piece.type == 2:
+                        poss_fields = [(pos[0] + i, pos[1]) for i in range(1, game_dim - pos[0])] +\
+                                      [(pos[0], pos[1] + i) for i in range(1, game_dim - pos[1])] + \
+                                      [(pos[0] - i, pos[1]) for i in range(1, pos[0]+1)] +\
+                                      [(pos[0], pos[1] - i) for i in range(1, pos[1]+1)]
+                        for pos_to in poss_fields:
+                            move = (pos, pos_to)
+                            if is_legal_move(board, move):
+                                base_move = (pos_to[0] - pos[0], pos_to[1] - pos[1])
+                                base_move_idx = p_moves.index(base_move)
+                                actions_mask[p_range.min() + base_move_idx] = 1
+
+                    else:
+                        poss_fields = [(pos[0]+1, pos[1]),
+                                       (pos[0], pos[1]+1),
+                                       (pos[0]-1, pos[1]),
+                                       (pos[0], pos[1]-1)]
+                        for pos_to in poss_fields:
+                            move = (pos, pos_to)
+                            if is_legal_move(board, move):
+                                base_move = (pos_to[0] - pos[0], pos_to[1] - pos[1])
+                                base_move_idx = p_moves.index(base_move)
+                                actions_mask[p_range.min() + base_move_idx] = 1
+    return actions_mask
 
 def print_board(board, same_figure=True):
     """
