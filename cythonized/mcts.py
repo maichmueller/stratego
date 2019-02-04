@@ -2,10 +2,13 @@ import time
 import math
 import random
 from copy import deepcopy
-from cythonized import helpers
+
+from cythonized import utils
+
 import numpy as np
 
 EPS = 1e-8
+
 
 class MCTS():
     """
@@ -39,7 +42,7 @@ class MCTS():
         s = str(self.game)
         counts = [self.Nsa[(s,a)] if (s,a) in self.Nsa else 0 for a in self.game.get_action_rep().values()]
 
-        if temp==0:
+        if temp == 0:
             best_act = np.argmax(counts)
             probs = [0]*len(counts)
             probs[best_act]=1
@@ -48,7 +51,6 @@ class MCTS():
         counts = [x**(1./temp) for x in counts]
         probs = [x/float(sum(counts)) for x in counts]
         return probs
-
 
     def search(self, state):
         """
@@ -78,7 +80,7 @@ class MCTS():
         if s not in self.Ps:
             # leaf node
             self.Ps[s], v = self.nnet.predict(state.board)
-            actions_mask = helpers.get_act_repr_mask(state.board, self.game.move_count % 2,
+            actions_mask = utils.get_act_repr_mask(state.board, self.game.move_count % 2,
                                                      self.game.action_rep_dict,
                                                      self.game.action_rep_moves,
                                                      self.game.action_rep_pieces)
@@ -98,7 +100,7 @@ class MCTS():
 
             self.Vs[s] = actions_mask
             self.Ns[s] = 0
-            return v
+            return -v
 
         valids = self.Vs[s]
         cur_best = -float('inf')
@@ -108,8 +110,8 @@ class MCTS():
         action_rep_dict, action_rep_moves, action_rep_pieces = self.game.get_action_rep()
         for idx, a in enumerate(action_rep_moves):
             if valids[idx]:
-                if (s,a) in self.Qsa:
-                    u = self.Qsa[(s,a)] + self.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s]) / (1 + self.Nsa[(s,a)])
+                if (s, a) in self.Qsa:
+                    u = self.Qsa[(s, a)] + self.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s]) / (1 + self.Nsa[(s,a)])
                 else:
                     u = self.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s] + EPS)     # Q = 0 ?
 
@@ -132,4 +134,4 @@ class MCTS():
             self.Nsa[(s,a)] = 1
 
         self.Ns[s] += 1
-        return v
+        return -v

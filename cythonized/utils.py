@@ -14,7 +14,9 @@ import copy
 class GameDefaults:
     def __init__(self, board_size='small'):
         self.board_size = board_size
-        self.set_board_size(board_size)
+        self.types_available = np.array([0, 1] + [2] * 3 + [3] * 2 + [10] + [11] * 2)
+        self.obstacle_positions = [(2, 2)]
+        self.game_dim = 5
 
     def set_board_size(self, board_size):
         if board_size == self.board_size:
@@ -37,6 +39,7 @@ class GameDefaults:
 
     def get_game_specs(self):
         return self.obstacle_positions, self.types_available, self.game_dim
+
 
 GameDef = GameDefaults()
 
@@ -94,7 +97,8 @@ def is_legal_move(board, move_to_check):
 
     return True
 
-def get_act_repr_mask(board, team, action_rep_dict, action_rep_moves, action_rep_pieces):
+
+def get_act_repr_mask(board, team, action_rep_dict, action_rep_moves, *args):
     """
     :return: List of possible actions for agent of team 'team'
     """
@@ -131,6 +135,7 @@ def get_act_repr_mask(board, team, action_rep_dict, action_rep_moves, action_rep
                                 base_move_idx = p_moves.index(base_move)
                                 actions_mask[p_range.min() + base_move_idx] = 1
     return actions_mask
+
 
 def print_board(board, same_figure=True):
     """
@@ -184,7 +189,6 @@ def print_board(board, same_figure=True):
     plt.gca().invert_yaxis()
     plt.pause(1)
     plt.show(block=False)
-
 
 
 def get_poss_moves(board, team):

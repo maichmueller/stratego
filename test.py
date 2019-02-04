@@ -1,45 +1,23 @@
+
+import colorama
+from colorama import Fore, Back, Style
+import sys
 import time
-from numba import jit, njit
-from functools import wraps
+
+def main():
+    for x in range(0, 1000):
+        print(x, end=" ")
+        time.sleep(0.5)
 
 
+def print_round_results(i, n, ag_0, ag_1, red_won, blue_won):
+    red = Fore.RED
+    blue = Fore.BLUE
+    rs = Style.RESET_ALL
+    print(f'\r{f"Game {i}/{n}".center(10)} : {f"{red}{str(ag_0).center(10)}{rs}"}{red_won} vs '
+          f'{blue_won} {f"{blue}{str(ag_1).center(10)}{rs}"}',
+          end='', flush=True)
 
 
-N= int(1e6)
-
-def app():
-    l = []
-    for i in range(N):
-        if i % 2:
-            l.append(i)
-    return l
-
-
-
-def app_jit():
-    l = []
-    for i in range(N):
-        if i % 2:
-            l.append(i)
-    return l
-
-@njit
-def app_njit():
-    l = []
-    for i in range(N):
-        if i % 2:
-            l.append(i)
-    return l
-
-
-t = time.perf_counter()
-app()
-print(round(time.perf_counter() - t, 2))
-
-t = time.perf_counter()
-app_jit()
-print(round(time.perf_counter() - t, 2))
-
-t = time.perf_counter()
-app_njit()
-print(round(time.perf_counter() - t, 2))
+if __name__ == '__main__':
+    main()

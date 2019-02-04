@@ -9,7 +9,7 @@ from torch.autograd import Variable
 
 import agent
 import coach
-import helpers
+import utils
 import pickle
 import copy
 
@@ -26,7 +26,7 @@ def optimize_model(model):
             return  # not optimizing for not enough memory
     model.train()
     transitions = memory.sample(BATCH_SIZE)  # sample memories batch
-    batch = helpers.Transition(*zip(*transitions))  # transpose the batch
+    batch = utils.Transition(*zip(*transitions))  # transpose the batch
 
     # Compute a mask of non-final states and concatenate the batch elements
     non_final_mask = []
@@ -167,8 +167,8 @@ def train(env_, num_episodes):
                     if VERBOSE > 1:
                         if i_episode % PLOT_FREQUENCY == 0:
                             print("Episode {}/{}".format(i_episode, num_episodes))
-                            # helpers.plot_scores(episode_scores, N_SMOOTH)  # takes run time
-                            averages = helpers.plot_stats(averages, episode_won, N_SMOOTH, PLOT_FREQUENCY)
+                            # utils.plot_scores(episode_scores, N_SMOOTH)  # takes run time
+                            averages = utils.plot_stats(averages, episode_won, N_SMOOTH, PLOT_FREQUENCY)
                             torch.save(model.state_dict(), './saved_models/{}_current.pkl'.format(env_name))
                             if averages:
                                 if averages[-1] > best_winratio:
@@ -186,7 +186,7 @@ def train(env_, num_episodes):
 
 # hyperparameters
 
-device = helpers.get_device()
+device = utils.get_device()
 print("TORCH DEVICE USED: {}".format(device))
 PLOT_FREQUENCY = 500
 BATCH_SIZE = 1024  # for faster training take a smaller batch size, not too small as batchnorm will not work otherwise
@@ -212,7 +212,7 @@ env_name = "stratego"
 model = env__.agents[0].model  # optimize model of agent0
 model = model.to(device)
 optimizer = optim.Adam(model.parameters())
-memory = helpers.ReplayMemory(10000)
+memory = utils.ReplayMemory(10000)
 
 # model.load_state_dict(torch.load('./saved_models/{}_current.pkl'.format(env_name)))  # trained against Random
 train(env__, num_episodes)

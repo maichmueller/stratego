@@ -5,7 +5,7 @@ import copy
 # from collections import Counter
 from scipy import spatial
 # from scipy import optimize
-import helpers
+from cythonized import utils
 import torch
 import models
 
@@ -17,8 +17,6 @@ import random
 import numpy as np
 import math
 import sys
-from utils import *
-from pytorch_classification.utils import Bar, AverageMeter
 
 import argparse
 import torch
@@ -46,7 +44,7 @@ class Agent:
         self.pieces_last_N_Moves_beforePos = []
         self.pieces_last_N_Moves_afterPos = []
 
-        self.battleMatrix = helpers.get_bm()
+        self.battleMatrix = utils.get_bm()
 
         # list of enemy pieces
         self.ordered_opp_pieces = []  # TODO replace this?
@@ -210,7 +208,7 @@ class Random(Agent):
             piece.hidden = False
 
     def decide_move(self):
-        actions = helpers.get_poss_moves(self.board, self.team)
+        actions = utils.get_poss_moves(self.board, self.team)
         if not actions:
             return None
         else:
@@ -322,7 +320,7 @@ class Reinforce(Agent):
         :param action_dim: how many actions are possible for agent
         :return: list of legal actions
         """
-        poss_moves = helpers.get_poss_moves(self.board, self.team)  # which moves are possible in the game
+        poss_moves = utils.get_poss_moves(self.board, self.team)  # which moves are possible in the game
         poss_actions = []
         all_actions = range(0, action_dim)
         for action in all_actions:
@@ -512,124 +510,6 @@ class Stratego(Reinforce):
                opp_team_one, opp_team_twos, opp_team_threes, opp_team_ten, opp_team_flag, opp_team_bombs, obstacle
 
 
-class NNetWrapper:
-    def __init__(self, game):
-        self.nnet = onnet(game, args)
-        self.board_x, self.board_y = game.getBoardSize()
-        self.action_size = game.getActionSize()
-
-    def train(self, examples):
-        """
-        examples: list of examples, each example is of form (board, pi, v)
-        """
-        optimizer = optim.Adam(self.nnet.parameters())
-
-        for epoch in range(epochs):
-            print('EPOCH ::: ' + str(epoch+1))
-            self.nnet.train()
-            data_time = AverageMeter()
-            batch_time = AverageMeter()
-            pi_losses = AverageMeter()
-            v_losses = AverageMeter()
-            end = time.time()
-
-            bar = Bar('Training Net', max=int(len(examples)/args.batch_size))
-            batch_idx = 0
-
-            while batch_idx < int(len(examples)/args.batch_size):
-                sample_ids = np.random.randint(len(examples), size=args.batch_size)
-                boards, pis, vs = list(zip(*[examples[i] for i in sample_ids]))
-                boards = torch.FloatTensor(np.array(boards).astype(np.float64))
-                target_pis = torch.FloatTensor(np.array(pis))
-                target_vs = torch.FloatTensor(np.array(vs).astype(np.float64))
-
-                # predict
-                if args.cuda:
-                    boards, target_pis, target_vs = boards.contiguous().cuda(), target_pis.contiguous().cuda(), target_vs.contiguous().cuda()
-
-                # measure data loading time
-                data_time.update(time.time() - end)
-
-                # compute output
-                out_pi, out_v = self.nnet(boards)
-                l_pi = self.loss_pi(target_pis, out_pi)
-                l_v = self.loss_v(target_vs, out_v)
-                total_loss = l_pi + l_v
-
-                # record loss
-                pi_losses.update(l_pi.item(), boards.size(0))
-                v_losses.update(l_v.item(), boards.size(0))
-
-                # compute gradient and do SGD step
-                optimizer.zero_grad()
-                total_loss.backward()
-                optimizer.step()
-
-                # measure elapsed time
-                batch_time.update(time.time() - end)
-                end = time.time()
-                batch_idx += 1
-
-                # plot progress
-                bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss_pi: {lpi:.4f} | Loss_v: {lv:.3f}'.format(
-                            batch=batch_idx,
-                            size=int(len(examples)/args.batch_size),
-                            data=data_time.avg,
-                            bt=batch_time.avg,
-                            total=bar.elapsed_td,
-                            eta=bar.eta_td,
-                            lpi=pi_losses.avg,
-                            lv=v_losses.avg,
-                            )
-                bar.next()
-            bar.finish()
-
-
-    def predict(self, board):
-        """
-        board: np array with board
-        """
-        # timing
-        start = time.time()
-
-        # preparing input
-        board = torch.FloatTensor(board.astype(np.float64))
-        if args.cuda: board = board.contiguous().cuda()
-        board = board.view(1, self.board_x, self.board_y)
-        self.nnet.eval()
-        with torch.no_grad():
-            pi, v = self.nnet(board)
-
-        #print('PREDICTION TIME TAKEN : {0:03f}'.format(time.time()-start))
-        return torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0]
-
-    def loss_pi(self, targets, outputs):
-        return -torch.sum(targets*outputs)/targets.size()[0]
-
-    def loss_v(self, targets, outputs):
-        return torch.sum((targets-outputs.view(-1))**2)/targets.size()[0]
-
-    def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
-        filepath = os.path.join(folder, filename)
-        if not os.path.exists(folder):
-            print("Checkpoint Directory does not exist! Making directory {}".format(folder))
-            os.mkdir(folder)
-        else:
-            print("Checkpoint Directory exists! ")
-        torch.save({
-            'state_dict' : self.nnet.state_dict(),
-        }, filepath)
-
-    def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
-        # https://github.com/pytorch/examples/blob/master/imagenet/main.py#L98
-        filepath = os.path.join(folder, filename)
-        if not os.path.exists(filepath):
-            raise("No model in path {}".format(filepath))
-        map_location = None if args.cuda else 'cpu'
-        checkpoint = torch.load(filepath, map_location=map_location)
-        self.nnet.load_state_dict(checkpoint['state_dict'])
-
-
 class OmniscientStratego(Stratego):
     def __init__(self, team):
         super().__init__(team)
@@ -662,7 +542,7 @@ class MiniMax(Agent):
         self.max_depth = 2  # standard max depth
 
         # the matrix table for deciding battle outcomes between two pieces
-        self.battleMatrix = helpers.get_bm()
+        self.battleMatrix = utils.get_bm()
 
     def decide_move(self):
         """
@@ -718,7 +598,7 @@ class MiniMax(Agent):
 
         # get my possible actions, then shuffle them to ensure randomness when no action
         # stands out as the best
-        my_doable_actions = helpers.get_poss_moves(board, self.team)
+        my_doable_actions = utils.get_poss_moves(board, self.team)
         np.random.shuffle(my_doable_actions)
 
         # check for terminal-state scenario
@@ -751,7 +631,7 @@ class MiniMax(Agent):
 
         # get my possible actions, then shuffle them to ensure randomness when no action
         # stands out as the best
-        my_doable_actions = helpers.get_poss_moves(board, self.other_team)
+        my_doable_actions = utils.get_poss_moves(board, self.other_team)
         np.random.shuffle(my_doable_actions)
 
         # check for terminal-state scenario or maximum depth
@@ -991,65 +871,6 @@ class OmniscientHeuristic(Omniscient):
             return terminal_reward * (depth + 1) / (self.max_depth + 1) * (terminal_reward / self.kill_reward)
 
 
-class MiniMaxBoardEvaluator(MiniMax):
-    def __init__(self, team, setup=None):
-        super(MiniMaxBoardEvaluator, self).__init__(team=team, setup=setup)
-        self.evaluator = Stratego(team)
-
-    def evaluate_board_state(self, board):
-        own_pieces_alive = []
-        euclidean = spatial.distance.euclidean
-        for piece in self.own_pieces:
-            if not piece.dead:
-                own_pieces_alive.append(piece)
-                if piece.type == 0:
-                    flag = piece
-        opp_pieces_alive = []
-        for piece in self.ordered_opp_pieces:
-            if not piece.dead:
-                opp_pieces_alive.append(piece)
-                if piece.type == 0:
-                    opp_flag = piece
-        if opp_flag.dead:
-            return self.winGameReward
-
-        own_flag_distances_own_pieces = [euclidean(flag.pos, piece.pos) for piece in own_pieces_alive]
-        own_flag_distances_opp_pieces = [euclidean(flag.pos, piece.pos) for piece in opp_pieces_alive]
-        opp_flag_distances_own_pieces = [euclidean(opp_flag.pos, piece.pos) for piece in own_pieces_alive]
-
-        immediate_own_flag_fields = []
-        immediate_opp_flag_fields = []
-        for i in [1, -1]:
-            if 0 <= flag.pos[0]+i < board.shape[0]:
-                immediate_own_flag_fields.append( (flag.pos[0]+i, flag.pos[1]) )
-            if 0 <= flag.pos[1]+i < board.shape[0]:
-                immediate_own_flag_fields.append( (flag.pos[0], flag.pos[1]+i) )
-            if 0 <= opp_flag.pos[0]+i < board.shape[0]:
-                immediate_opp_flag_fields.append( (opp_flag.pos[0]+i, opp_flag.pos[1]) )
-            if 0 <= opp_flag.pos[1]+i < board.shape[0]:
-                immediate_opp_flag_fields.append( (opp_flag.pos[0], opp_flag.pos[1]+i) )
-
-        own_flag_imm_danger = [1 if not board[pos].team == self.team else 0 for pos in immediate_own_flag_fields ]
-        opp_flag_imm_danger = [1 if board[pos].team == self.team else 0 for pos in immediate_opp_flag_fields ]
-
-        owFowP_dist_weight = 0.1
-        opFowP_dist_weight = 0.7
-        owFopP_dist_weight = -0.5
-        owF_imm_danger_weight = -10
-        opF_imm_danger_weight = 10
-        owP_alive_weight = 0.3
-        opP_alive_weight = -0.3
-
-        evaluation = owFowP_dist_weight*sum(own_flag_distances_own_pieces) + \
-                     opFowP_dist_weight*sum(opp_flag_distances_own_pieces) + \
-                     owFopP_dist_weight*sum(own_flag_distances_opp_pieces) + \
-                     owF_imm_danger_weight*sum(own_flag_imm_danger) + \
-                     opF_imm_danger_weight*sum(opp_flag_imm_danger) + \
-                     owP_alive_weight*len(own_pieces_alive) + \
-                     opP_alive_weight*len(opp_pieces_alive)
-        return evaluation
-
-
 class Heuristic(MiniMax):
     """
     Non omniscient Minimax planner with learned board evluation function.
@@ -1095,7 +916,7 @@ class MonteCarlo(MiniMax):
         respecting the current knowledge, and then decide the move via minimax algorithm.
         :return: tuple of position tuples
         """
-        possible_moves = helpers.get_poss_moves(self.board, self.team)
+        possible_moves = utils.get_poss_moves(self.board, self.team)
         next_action = None
         if possible_moves:
             values_of_moves = dict.fromkeys(possible_moves, 0)
@@ -1123,7 +944,7 @@ class MonteCarlo(MiniMax):
         for i in range(self._nr_iterations_of_game_sim):
             board_copy = copy.deepcopy(board)
             while not finished:
-                actions = helpers.get_poss_moves(board_copy, turn)
+                actions = utils.get_poss_moves(board_copy, turn)
                 if actions:  # as long as actions are left to be done, we do them
                     move = random.choice(actions)
                     board_copy, _ = self.do_move(move, board_copy)
@@ -1206,7 +1027,7 @@ class MonteCarloHeuristic(MonteCarlo):
         respecting the current knowledge, and then decide the move via minimax algorithm.
         :return: tuple of position tuples
         """
-        possible_moves = helpers.get_poss_moves(self.board, self.team)
+        possible_moves = utils.get_poss_moves(self.board, self.team)
         next_action = None
         if possible_moves:
             values_of_moves = dict.fromkeys(possible_moves, 0)

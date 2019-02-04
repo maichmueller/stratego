@@ -2,25 +2,23 @@ from copy import deepcopy
 
 import numpy as np
 
-from cythonized import helpers
+from cythonized import utils
 import pieces
 from collections import Counter, defaultdict
 
 
 class Game:
 
-    bm = helpers.get_bm()
+    bm = utils.get_bm()
 
-    def __init__(self, agent0, agent1, board_size="big", fixed_setups=False, *args):
+    def __init__(self, agent0, agent1, board_size="big", fixed_setups=(None, None), *args):
         self.board_size = board_size
         self.agents = (agent0, agent1)
         self.fixed_setups = fixed_setups
 
-        helpers.GameDef.set_board_size(board_size)
-        self.obstacle_positions, self.types_available, self.game_dim = helpers.GameDef.get_game_specs()
+        utils.GameDef.set_board_size(board_size)
+        self.obstacle_positions, self.types_available, self.game_dim = utils.GameDef.get_game_specs()
 
-        self.state = None
-        self.game_replay = None
         self.reset()
 
         self.move_count = 1  # agent 1 starts
@@ -66,9 +64,14 @@ class Game:
         return board
 
     def reset(self):
-        if not self.fixed_setups:
+        if self.fixed_setups[0] is None:
             self.agents[0].setup = self._draw_random_setup(self.types_available, 0, self.game_dim)
+        else:
+            self.agents[0].setup = self.fixed_setups[0]
+        if self.fixed_setups[1] is None:
             self.agents[1].setup = self._draw_random_setup(self.types_available, 1, self.game_dim)
+        else:
+            self.agents[1].setup = self.fixed_setups[1]
 
         if self.agents[0].setup is not None and self.agents[1].setup is not None:
             board = self._build_board_from_setups(self.agents[0].setup, self.agents[1].setup)
@@ -87,7 +90,7 @@ class Game:
         game_over = False
         rewards = None
         if show:
-            print_board = helpers.print_board
+            print_board = utils.print_board
         else:
             def print_board(*args): pass
 
@@ -185,11 +188,10 @@ class Game:
             if self.agents[(turn + 1) % 2].learner:
                 self.agents[(turn + 1) % 2].add_reward(self.reward_die)
         if outcome == -1:
-            turn += 1
             if self.agents[turn].learner:
-                self.agents[turn].add_reward(self.reward_kill)
+                self.agents[turn].add_reward(self.reward_die)
             if self.agents[(turn + 1) % 2].learner:
-                self.agents[(turn + 1) % 2].add_reward(self.reward_die)
+                self.agents[(turn + 1) % 2].add_reward(self.reward_kill)
         else:
             if self.agents[turn].learner:
                 self.agents[turn].add_reward(self.reward_kill)
@@ -258,7 +260,7 @@ class GameState:
             self.dead_pieces = (dict(), dict())
         self.board = board
         self.game_dim = board.shape[0]
-        self.obstacle_positions = helpers.GameDef.get_game_specs()[0]
+        self.obstacle_positions = utils.GameDef.get_game_specs()[0]
 
         self.move_count = move_count
 
@@ -277,7 +279,7 @@ class GameState:
 
         for pcs, team in zip((pieces0, pieces0), (0, 1)):
             dead_pieces_dict = dict()
-            for type_, freq in Counter(helpers.GameDef.get_game_specs()[1]).items():
+            for type_, freq in Counter(utils.GameDef.get_game_specs()[1]).items():
                 dead_pieces_dict[type_] = freq - pcs[type_]
             self.dead_pieces[team] = dead_pieces_dict
 
@@ -310,9 +312,9 @@ class GameState:
         if not flag_only:
             if turn is None:
                 turn = 0
-            if not helpers.get_poss_moves(self.board, turn):
+            if not utils.get_poss_moves(self.board, turn):
                 self.terminal = -2  # agent 1 wins by moves
-            elif not helpers.get_poss_moves(self.board, (turn + 1) % 2):
+            elif not utils.get_poss_moves(self.board, (turn + 1) % 2):
                 self.terminal = 2  # agent 0 wins by moves
 
         if self.move_count is not None and self.move_count > 500:
@@ -331,7 +333,7 @@ class GameState:
 
         board = self.board
 
-        # if not helpers.is_legal_move(self.board, move):
+        # if not utils.is_legal_move(self.board, move):
         #    return False  # illegal move chosen
 
         board[from_].has_moved = True

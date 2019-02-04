@@ -2,28 +2,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-
-class MiniConv(nn.Module):
-    """
-    One convolution, one linear layer
-    """
-    def __init__(self, state_dim, action_dim):
-        super(MiniConv, self).__init__()
-        self.filter = 10
-        self.feature_size = self.filter * 25
-        self.conv1 = nn.Conv2d(state_dim, self.filter, padding=1, kernel_size=3)
-        self.lin1 = nn.Linear(self.feature_size, 16)
-        self.lin_final = nn.Linear(16, action_dim)
-
-    def extract_features(self, x):
-        x = F.relu(self.conv1(x))
-        x = x.view(-1, self.feature_size)
-        return F.relu(self.lin1(x))
-
-    def forward(self, x):
-        x = self.extract_features(x)
-        return F.sigmoid(self.lin_final(x))
+from torch import optim
+import time
+import os
+from cythonized.utils import AverageMeter
+from progressBar.progress.bar import Bar
 
 
 class NNLinear(nn.Module):
@@ -217,3 +200,123 @@ class FullConnect(nn.Module):
         x = F.sigmoid(self.lin_final(x))
         return x
 
+
+class NNetWrapper:
+    def __init__(self, game, nnet):
+        self.nnet = nnet
+        self.board_x, self.board_y = game.game_dim, game.game_dim
+        self.action_size = len(game.get_action_rep()[1])
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    def train(self, examples, epochs, batch_size=128):
+        """
+        examples: list of examples, each example is of form (board, pi, v)
+        """
+        optimizer = optim.Adam(self.nnet.parameters())
+
+        for epoch in range(epochs):
+            print('EPOCH ::: ' + str(epoch+1))
+            self.nnet.train()
+            data_time = AverageMeter()
+            batch_time = AverageMeter()
+            pi_losses = AverageMeter()
+            v_losses = AverageMeter()
+            end = time.time()
+
+            bar = Bar('Training Net', max=int(len(examples) / batch_size))
+            batch_idx = 0
+
+            while batch_idx < int(len(examples) / batch_size):
+                sample_ids = np.random.randint(len(examples), size=batch_size)
+                boards, pis, vs = list(zip(*[examples[i] for i in sample_ids]))
+                boards = torch.Tensor(np.array(boards).astype(np.float64))
+                target_pis = torch.Tensor(np.array(pis))
+                target_vs = torch.Tensor(np.array(vs).astype(np.float64))
+
+                # predict
+                # boards, target_pis, target_vs = list(map(lambda x: x.contiguous().to_device(self.device),
+                #                                          [boards, target_pis, target_vs]))
+                boards, target_pis, target_vs = list(map(lambda x: x.to_device(self.device),
+                                                         [boards, target_pis, target_vs]))
+
+                # measure data loading time
+                data_time.update(time.time() - end)
+
+                # compute output
+                out_pi, out_v = self.nnet(boards)
+                l_pi = self.loss_pi(target_pis, out_pi)
+                l_v = self.loss_v(target_vs, out_v)
+                total_loss = l_pi + l_v
+
+                # record loss
+                pi_losses.update(l_pi.item(), boards.size(0))
+                v_losses.update(l_v.item(), boards.size(0))
+
+                # compute gradient and do SGD step
+                optimizer.zero_grad()
+                total_loss.backward()
+                optimizer.step()
+
+                # measure elapsed time
+                batch_time.update(time.time() - end)
+                end = time.time()
+                batch_idx += 1
+
+                # plot progress
+                bar.suffix = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} ' \
+                             '| ETA: {eta:} | Loss_pi: {lpi:.4f} | Loss_v: {lv:.3f}'.format(
+                              batch=batch_idx,
+                              size=int(len(examples) / batch_size),
+                              data=data_time.avg,
+                              bt=batch_time.avg,
+                              total=bar.elapsed_td,
+                              eta=bar.eta_td,
+                              lpi=pi_losses.avg,
+                              lv=v_losses.avg
+                             )
+                bar.next()
+            bar.finish()
+
+    def predict(self, board):
+        """
+        board: np array with board
+        """
+        # timing
+        # start = time.time()
+
+        # preparing input
+        board = torch.Tensor(board.astype(np.float64))
+        board = board.to_device(self.device)
+        board = board.view(1, self.board_x, self.board_y)
+        self.nnet.eval()
+        with torch.no_grad():
+            pi, v = self.nnet(board)
+
+        # print('PREDICTION TIME TAKEN : {0:03f}'.format(time.time()-start))
+        return torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0]
+
+    def loss_pi(self, targets, outputs):
+        return -torch.sum(targets*outputs)/targets.size()[0]
+
+    def loss_v(self, targets, outputs):
+        return torch.sum((targets-outputs.view(-1))**2)/targets.size()[0]
+
+    def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
+        filepath = os.path.join(folder, filename)
+        if not os.path.exists(folder):
+            print("Checkpoint Directory does not exist! Making directory {}".format(folder))
+            os.mkdir(folder)
+        else:
+            print("Checkpoint Directory exists! ")
+        torch.save({
+            'state_dict' : self.nnet.state_dict(),
+        }, filepath)
+
+    def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
+        # https://github.com/pytorch/examples/blob/master/imagenet/main.py#L98
+        filepath = os.path.join(folder, filename)
+        if not os.path.exists(filepath):
+            raise("No model in path {}".format(filepath))
+        map_location = None if self.device != 'cpu' else 'cpu'
+        checkpoint = torch.load(filepath, map_location=map_location)
+        self.nnet.load_state_dict(checkpoint['state_dict'])
