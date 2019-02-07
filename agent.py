@@ -24,6 +24,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
+from collections import Counter
+import abc
 
 
 
@@ -215,7 +217,7 @@ class Random(Agent):
             return random.choice(actions)
 
 
-class Reinforce(Agent):
+class Reinforce(Agent, abc.ABC):
     """
     Agent approximating action-value functions with an artificial neural network
     trained with Q-learning
@@ -224,10 +226,13 @@ class Reinforce(Agent):
         super(Reinforce, self).__init__(team=team, setup=setup)
         self.learner = True
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.state_dim = NotImplementedError
-        self.action_dim = NotImplementedError
-        self.model = NotImplementedError
-        self.actors = []
+        self.state_dim = None
+        self.action_dim = None
+        self.model = None
+        self.actors = None
+        self.actions = None
+        self.relation_dict = None
+        self.reward = 0
 
     def install_board(self, board, reset=False):
         super().install_board(board, reset=False)
@@ -236,15 +241,13 @@ class Reinforce(Agent):
             piece.potential_types = opp_types
         for piece in self.own_pieces:
             piece.hidden = False
-        self.action_represent()
 
     def decide_move(self):
         board = self.draw_consistent_enemy_setup(copy.deepcopy(self.board))
         state = self.board_to_state(board)
-        # state = self.board_to_state(board)
-        action = self.select_action(state, p_random=0.00)
+        action = self.select_action(state)
         if action is not None:
-            move = self.action_to_move(action[0, 0])
+            move = self.action_to_move(action)
         else:
             return None
         return move
@@ -255,79 +258,32 @@ class Reinforce(Agent):
         """
         return NotImplementedError
 
-    def action_represent(self):
+    def set_action_rep(self, actors, actions, relation_dict):
         """
-        Initialize pieces to be controlled by agent (self.actors) (only known and to be set by environment)
-        and list of (piece number, action number)
-        e.g. for two pieces with 4 actions each: ((0, 0), (0, 1), (0, 2), (0, 3), (1, 0), (1, 1), (1, 2), (1, 3))
+        Install the action representation given by the game.
         """
-        actors = []
-        for pos in [(i, j) for i in range(self.board.shape[0]) for j in range(self.board.shape[1])]:
-            p = self.board[pos]
-            if p is not None:
-                if p.team == self.team:
-                    if p.can_move:
-                        actors.append(p)
-        self.actors = sorted(actors, key=lambda actor: actor.type + actor.version / 10)
-        # train for unique actor sequence, sort by type and version
+        self.actors = []
+        for actor, count in Counter(actors).items():
+            type_, version = list(map(int, actor.split('_')))
+            for piece in self.board.flatten():
+                if piece is not None and piece.type == type_ and piece.version == version:
+                    self.actors += [piece] * count
 
-        # self.actors = actors
-        piece_action = []
-        for i, a in enumerate(self.actors):
-            if a.type == 2:
-                piece_action += [(i, j) for j in range(16)]
-            else:
-                piece_action += [(i, j) for j in range(4)]
-        self.piece_action = piece_action
+        self.actions = actions
+        self.relation_dict = relation_dict
 
-    def select_action(self, state, p_random):
-        """
-        Agents action is one of four directions
-        :return: action 0: up, 1: down, 2: left, 3: right (cross in prayer)
-        """
-        poss_actions = self.poss_actions(action_dim=self.action_dim)
-        if not poss_actions:
-            return None
-            # return torch.LongTensor([[random.randint(0, self.action_dim-1)]])
-        sample = random.random()
-        if sample > p_random:
-            self.model.eval()
-            state_action_values = self.model(state).view(-1)
-            # state_action_values = state_action_values.cpu()
-            q_values = state_action_values
+    def select_action(self, state):
 
-            for action in range(len(q_values)):
-                if action not in poss_actions:
-                    q_values[action] = -1  # (optional) mask out impossible actions
-            # print("masked: {}".format(np.round(q_values, 2)))
+        self.model.eval()
+        state_action_values = self.model(state).view(-1)
+        # state_action_values = state_action_values.cpu()
 
-            # 1. deterministic action selection (always select maximum q-value
-            #action = int(np.argmax(q_values))
-            action = int(torch.argmax(q_values))
+        action = self.actions[int(torch.argmax(state_action_values))]
 
-            return torch.LongTensor([[action]]).to(self.device)
-        else:
-            # 1. random from possible (not-illegal) actions
-            i = random.randint(0, len(poss_actions) - 1)
-            random_action = poss_actions[i]
-            return torch.LongTensor([[random_action]]).to(self.device)
-            # 2. truly random (including illegal moves)
-            # return torch.LongTensor([[random.randint(0, action_dim - 1)]])
+        return action
 
-    def poss_actions(self, action_dim):
-        """
-        Converting set of possible moves in the whole game to a set of actions for the agent
-        :param action_dim: how many actions are possible for agent
-        :return: list of legal actions
-        """
-        poss_moves = utils.get_poss_moves(self.board, self.team)  # which moves are possible in the game
-        poss_actions = []
-        all_actions = range(0, action_dim)
-        for action in all_actions:
-            move = self.action_to_move(action)  # converting all actions to moves (which can be illegal)
-            if move in poss_moves:              # only select legal moves among them
-                poss_actions.append(action)
-        return poss_actions
+    def add_reward(self, reward):
+        self.reward += reward
 
     def action_to_move(self, action):
         """
@@ -338,25 +294,20 @@ class Reinforce(Agent):
         """
         if action is None:
             return None
-        i, action = self.piece_action[action]
+        i = self.actions.index(action)
         piece = self.actors[i]
         piece_pos = piece.position  # where is the piece
         if piece_pos is None:
             move = (None, None)  # return illegal move
             return move
-        moves = []
-        if self.team == 0:
-            for i in range(1, 5):
-                moves += [(i, 0), (-i, 0), (0, -i), (0, i)]
-        else:
-            for i in range(1, 5):
-                moves += [(-i, 0), (i, 0), (0, i), (0, -i)]  # directions reversed
 
-        direction = moves[action]  # action: 0-3
-        pos_to = [sum(x) for x in zip(piece_pos, direction)]  # go in this direction
-        pos_to = tuple(pos_to)
+        pos_to = (piece_pos[0] + action[0], piece_pos[1] + action[1])
         move = (piece_pos, pos_to)
         return move
+
+    @staticmethod
+    def check(piece, team, type_, version):
+        return 1 * (piece.team == team and piece.type == type_ and piece.version == version)
 
     def board_to_state(self, board=None):
         """
@@ -365,23 +316,24 @@ class Reinforce(Agent):
         (e.g. Finder only needs his own position, but MiniStratego will need all opponents pieces also)
         :return: (state_dim * 5 * 5) Tensor
         """
+
         if board is None:
             board = self.board
+
         conditions = self.state_represent()
         state_dim = len(conditions)
         board_state = np.zeros((state_dim, self.board.shape[0], self.board.shape[1]))  # zeros for empty field
         for pos, val in np.ndenumerate(board):
             p = board[pos]
             # for reinforce as team 1, reverse board to have same state representation
-            if self.team == 1:
-                pos = (self.board.shape[0]-1 - pos[0], self.board.shape[0]-1 - pos[1])
+            # if self.team == 1:
+            #     pos = (self.board.shape[0]-1 - pos[0], self.board.shape[0]-1 - pos[1])
             if p is not None:  # piece on this field
-                for i, cond in enumerate(conditions):
-                    condition, value = cond(p)
-                    if condition:
-                        board_state[tuple([i] + list(pos))] = value  # represent type
-        board_state = torch.FloatTensor(board_state).to(self.device)
-        board_state = board_state.view(1, state_dim, self.board.shape[0], self.board.shape[0])  # add dimension for more batches
+                for i, (team, type_, vers) in enumerate(conditions):
+                    board_state[(i,) + pos] = self.check(p, team, type_, vers)  # represent type
+        board_state = torch.Tensor(board_state).to(self.device)
+        # add dim for batches
+        board_state = board_state.view(1, state_dim, self.board.shape[0], self.board.shape[0])
         return board_state
 
     def update_prob_by_fight(self, enemy_piece):
@@ -404,8 +356,8 @@ class Reinforce(Agent):
             moving_piece.hidden = False
             moving_piece.potential_types = [moving_piece.type]  # piece is 2
         else:
-            immobile_enemy_types = [idx for idx, type in enumerate(moving_piece.potential_types)
-                                    if type in [0, 11]]
+            immobile_enemy_types = [idx for idx, type_ in enumerate(moving_piece.potential_types)
+                                    if type_ in [0, 11]]
             moving_piece.potential_types = np.delete(moving_piece.potential_types, immobile_enemy_types)
 
     def draw_consistent_enemy_setup(self, board):
@@ -453,11 +405,12 @@ class Reinforce(Agent):
         return board
 
 
-class Stratego(Reinforce):
+class AlphaZero(Reinforce):
     def __init__(self, team, game_dim=5):
-        super(Stratego, self).__init__(team=team)
+        super(AlphaZero, self).__init__(team=team)
         self.action_dim = 64  # all pieces 3 * 16 (for pieces: 2, 2, 2) + 4 * 4 for (for pieces 1, 3, 3, 10)
         self.state_dim = len(self.state_represent())
+
         filter_amounts = np.array([128, 128, 128, 128])
         maxpool_layer_pos = np.array([0, 1, 0, 0])
         width, height = game_dim, game_dim
@@ -472,53 +425,55 @@ class Stratego(Reinforce):
         dropout_prob_per_layer = np.array([0.5, 0.5, 0, 0])
         start_layer_exponent = 10
         activation_function = torch.nn.ReLU()
-        self.model = models.ELaborateConvFC(game_dim=game_dim,
-                                            channels_in=self.state_dim,
-                                            filter_amounts=filter_amounts,
-                                            maxpool_layer_pos=maxpool_layer_pos,
-                                            d_in=d_in,
-                                            d_out=d_out,
-                                            kernel_sizes=kernel_sizes,
-                                            nr_lin_layers=nr_lin_layers,
-                                            dropout_prob_per_layer=dropout_prob_per_layer,
-                                            start_layer_exponent=start_layer_exponent,
-                                            activation_function=activation_function)
+        nnet = models.ELaborateConvFC(game_dim=game_dim,
+                                      channels_in=self.state_dim,
+                                      filter_amounts=filter_amounts,
+                                      maxpool_layer_pos=maxpool_layer_pos,
+                                      d_in=d_in,
+                                      d_out=d_out,
+                                      kernel_sizes=kernel_sizes,
+                                      nr_lin_layers=nr_lin_layers,
+                                      dropout_prob_per_layer=dropout_prob_per_layer,
+                                      start_layer_exponent=start_layer_exponent,
+                                      activation_function=activation_function)
+        self.model = models.NNetWrapper(game_dim=game_dim, nnet=nnet, action_dim=self.action_dim)
         # self.model = models.Linear(self.state_dim, self.action_dim)
         # self.model.load_state_dict(torch.load('./saved_models/stratego_best.pkl'))
 
     def state_represent(self):
-        own_team_one = lambda p: (p.team == self.team and p.type == 1, 1)
-        own_team_two_1 = lambda p: (p.team == self.team and p.type == 2 and p.version == 1, 1)
-        own_team_two_2 = lambda p: (p.team == self.team and p.type == 2 and p.version == 2, 1)
-        own_team_two_3 = lambda p: (p.team == self.team and p.type == 2 and p.version == 3, 1)
-        own_team_three_1 = lambda p: (p.team == self.team and p.type == 3 and p.version == 1, 1)
-        own_team_three_2 = lambda p: (p.team == self.team and p.type == 3 and p.version == 2, 1)
-        own_team_ten = lambda p: (p.team == self.team and p.type == 10, 1)
-        own_team_flag = lambda p: (p.team == self.team and p.type == 0, 1)
-        own_team_bombs = lambda p: (p.team == self.team and p.type == 11, 1)
+        conditions = []
 
-        opp_team_one = lambda p: (p.team == self.other_team and p.type == 1, 1)
-        opp_team_twos = lambda p: (p.team == self.other_team and p.type == 2, 1)
-        opp_team_threes = lambda p: (p.team == self.other_team and p.type == 3, 1)
-        opp_team_ten = lambda p: (p.team == self.other_team and p.type == 10, 1)
-        opp_team_flag = lambda p: (p.team == self.other_team and p.type == 0, 1)
-        opp_team_bombs = lambda p: (p.team == self.other_team and p.type == 11, 1)
-        opp_full_team = lambda p: (p.team == self.other_team, p.type)
-        obstacle = lambda p: (p.type == 99, 1)
-        return own_team_one, own_team_two_1, own_team_two_2, own_team_two_3, own_team_three_1, own_team_three_2, \
-               own_team_ten, own_team_flag, own_team_bombs, \
-               opp_team_one, opp_team_twos, opp_team_threes, opp_team_ten, opp_team_flag, opp_team_bombs, obstacle
+        # own team
+        # flag, 1 , 10, bombs
+        conditions += [(self.team, t, v) for (t, v) in zip([0, 1, 10, 11], [1]*4)]
+        # 2's, 3 versions
+        conditions += [(self.team, t, v) for (t, v) in zip([2]*3, [1, 2, 3])]
+        # 3's, 2 versions
+        conditions += [(self.team, t, v) for (t, v) in zip([3]*2, [1, 2])]
+
+        # opponent team
+        # flag, 1 , 10, bombs
+        conditions += [(self.other_team, t, v) for (t, v) in zip([0, 1, 10, 11], [1]*4)]
+        # 2's, 3 versions
+        conditions += [(self.other_team, t, v) for (t, v) in zip([2]*3, [1, 2, 3])]
+        # 3's, 2 versions
+        conditions += [(self.other_team, t, v) for (t, v) in zip([3]*2, [1, 2])]
+
+        # obstacle
+        conditions += [(99, 99, 1)]
+
+        return conditions
 
 
-class OmniscientStratego(Stratego):
+class OmniscientStratego(AlphaZero):
     def __init__(self, team):
         super().__init__(team)
 
     def decide_move(self):
         state = self.board_to_state()
-        action = self.select_action(state, p_random=0.00)
+        action = self.select_action(state)
         if action is not None:
-            move = self.action_to_move(action[0, 0])
+            move = self.action_to_move(action)
         else:
             return None
         return move

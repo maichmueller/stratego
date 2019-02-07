@@ -2,10 +2,13 @@ import time
 import math
 import random
 from copy import deepcopy
+import torch
+from collections import defaultdict
 
 from cythonized import utils
 
 import numpy as np
+import sys
 
 EPS = 1e-8
 
@@ -26,41 +29,44 @@ class MCTS():
         self.Ps = {}        # stores initial policy (returned by neural net)
 
         self.Es = {}        # stores game.is_terminal ended for board s
-        self.Vs = {}        # stores game.get_poss_moves for board s
+        # self.Vs = {}        # stores game.get_poss_moves for board s
 
-    def get_action_prob(self, board, temp=1):
+        self.same_reps = defaultdict(list)
+
+    def get_action_prob(self, state, player, temp=1):
         """
-        This function performs numMCTSSims simulations of MCTS starting from
+        This function performs num_mcts_sims simulations of MCTS starting from
         board.
         Returns:
             probs: a policy vector where the probability of the ith action is
                    proportional to Nsa[(s,a)]**(1./temp)
         """
         for i in range(self.num_mcts_sims):
-            self.search(board)
+            print('Iteration:', i)
+            self.search(deepcopy(state), player)
 
-        s = str(self.game)
-        counts = [self.Nsa[(s,a)] if (s,a) in self.Nsa else 0 for a in self.game.get_action_rep().values()]
+        s = str(self.game.state)
+        counts = [self.Nsa[(s, a)] if (s, a) in self.Nsa else 0 for a in range(utils.action_rep.action_dim)]
 
         if temp == 0:
             best_act = np.argmax(counts)
             probs = [0]*len(counts)
-            probs[best_act]=1
+            probs[best_act] = 1
             return probs
 
         counts = [x**(1./temp) for x in counts]
         probs = [x/float(sum(counts)) for x in counts]
         return probs
 
-    def search(self, state):
+    def search(self, state, player):
         """
         This function performs one iteration of MCTS. It is recursively called
         till a leaf node is found. The action chosen at each node is one that
         has the maximum upper confidence bound as in the paper.
         Once a leaf node is found, the neural network is called to return an
-        initial policy P and a value v for the state. This value is propogated
+        initial policy P and a value v for the state. This value is propagated
         up the search path. In case the leaf node is a terminal state, the
-        outcome is propogated up the search path. The values of Ns, Nsa, Qsa are
+        outcome is propagated up the search path. The values of Ns, Nsa, Qsa are
         updated.
         NOTE: the return values are the negative of the value of the current
         state. This is done since v is in [-1,1] and if v is the value of a
@@ -68,70 +74,80 @@ class MCTS():
         Returns:
             v: the negative of the value of the current board
         """
-
-        s = str(self.game)
+        state.force_canonical(player)
+        # get string representation of state
+        s = str(state)
 
         if s not in self.Es:
             self.Es[s] = state.is_terminal()
-        if self.Es[s] != 0:
+        if self.Es[s] != 404:
             # terminal node
             return -self.Es[s]
 
+        actions, relation_dict = utils.action_rep.actions, utils.action_rep.act_piece_relation
+        actions_mask = utils.get_actions_mask(state.board, 0,
+                                              relation_dict,
+                                              actions)
+
         if s not in self.Ps:
             # leaf node
-            self.Ps[s], v = self.nnet.predict(state.board)
-            actions_mask = utils.get_act_repr_mask(state.board, self.game.move_count % 2,
-                                                     self.game.action_rep_dict,
-                                                     self.game.action_rep_moves,
-                                                     self.game.action_rep_pieces)
-
-            self.Ps[s] = self.Ps[s] * actions_mask  # masking invalid moves
+            print('Leaf node reached.')
+            Ps, v = self.nnet.predict(torch.Tensor(state.state_represent(player)))
+            self.Ps[s] = Ps * actions_mask  # masking invalid moves
             sum_ps = np.sum(self.Ps[s])
             if sum_ps > 0:
                 self.Ps[s] /= sum_ps   # renormalize
             else:
                 # if all valid moves were masked make all valid moves equally probable
 
-                # NB! All valid moves may be masked if either your NNet architecture is insufficient or you've get overfitting or something else.
-                # If you have got dozens or hundreds of these messages you should pay attention to your NNet and/or training process.
+                # NB! All valid moves may be masked if either your NNet architecture is
+                # insufficient or you've get overfitting or something else.
+                # If you have got dozens or hundreds of these messages you
+                # should pay attention to your NNet and/or training process.
                 print("All valid moves were masked, do workaround.")
                 self.Ps[s] = self.Ps[s] + actions_mask
                 self.Ps[s] /= np.sum(self.Ps[s])
 
-            self.Vs[s] = actions_mask
+            # self.Vs[s] = actions_mask
             self.Ns[s] = 0
             return -v
 
-        valids = self.Vs[s]
+        self.same_reps[s].append((deepcopy(state.board), player, actions_mask))
+
+        # valids = self.Vs[s]
+        valids = actions_mask
         cur_best = -float('inf')
-        best_act = -1
+        best_action = -1
 
         # pick the action with the highest upper confidence bound
-        action_rep_dict, action_rep_moves, action_rep_pieces = self.game.get_action_rep()
-        for idx, a in enumerate(action_rep_moves):
-            if valids[idx]:
+        for a in range(utils.action_rep.action_dim):
+            if valids[a]:
+                # print('Valid:', a, self.game.action_to_move(a, player), flush=True)
                 if (s, a) in self.Qsa:
-                    u = self.Qsa[(s, a)] + self.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s]) / (1 + self.Nsa[(s,a)])
+                    u = self.Qsa[(s, a)] + self.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s]) / (1 + self.Nsa[(s, a)])
                 else:
                     u = self.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s] + EPS)     # Q = 0 ?
 
                 if u > cur_best:
                     cur_best = u
-                    best_act = a
+                    best_action = a
 
-        a = best_act
-        next_state = deepcopy(state)
-        next_state.do_move(move=a)
+        a = best_action
+        move = state.action_to_move(a, 0)
 
-        v = self.search(next_state)
+        print(f'Turn: {player} Action: {str(a).rjust(2)} Move: {move} '
+              f'Piece: {state.board[move[0]]}')
 
-        if (s,a) in self.Qsa:
-            self.Qsa[(s,a)] = (self.Nsa[(s,a)]*self.Qsa[(s,a)] + v)/(self.Nsa[(s,a)]+1)
-            self.Nsa[(s,a)] += 1
+        state.do_move(move)
+        v = self.search(state, (player + 1) % 2)
+
+        if (s, a) in self.Qsa:
+            self.Qsa[(s, a)] = (self.Nsa[(s, a)]*self.Qsa[(s, a)] + v)/(self.Nsa[(s, a)]+1)
+            self.Nsa[(s, a)] += 1
 
         else:
-            self.Qsa[(s,a)] = v
-            self.Nsa[(s,a)] = 1
+            self.Qsa[(s, a)] = v
+            self.Nsa[(s, a)] = 1
 
         self.Ns[s] += 1
         return -v

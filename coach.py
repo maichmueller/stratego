@@ -15,6 +15,7 @@ import sys
 from pickle import Pickler, Unpickler
 from random import shuffle
 from arena import Arena
+import models
 
 
 class Coach:
@@ -43,10 +44,10 @@ class Coach:
         self.reward_die = 0  # lose to enemy figure
         self.reward_draw = 0
 
-        self.game = Game(agent0=student, agent1=deepcopy(student))
-        self.nnet = student.network
-        self.opp_net = self.game.agents[1].network  # the competitor network
-        self.mcts = MCTS(self.game.state, self.nnet)
+        self.game = Game(agent0=student, agent1=deepcopy(student), **kwargs)
+        self.nnet = student.model
+        self.opp_net = self.game.agents[1].model  # the competitor network
+        self.mcts = MCTS(self.game, self.nnet)
         self.train_expls_hist = []   # history of examples from args.numItersForTrainExamplesHistory latest iterations
         self.skip_first_self_play = False  # can be overriden in loadTrainExamples()
 
@@ -64,17 +65,18 @@ class Coach:
                            pi is the MCTS informed policy vector, v is +1 if
                            the player eventually won the game, else -1.
         """
-        board = self.game.state.board
+        state = self.game.state
         ep_step = 0
 
         while True:
             ep_step += 1
             temp = int(ep_step < self.temp_thresh)
 
-            pi = self.mcts.get_action_prob(board, temp=temp)
+            turn = self.game.move_count % 2
+            pi = self.mcts.get_action_prob(state, player=turn, temp=temp)
 
             action = np.random.choice(len(pi), p=pi)
-            self.game.run_step(move=action)
+            self.game.run_step(move=self.game.state.action_to_move(action, turn))
 
             r = self.game.state.is_terminal()
             if r == 404:
@@ -181,3 +183,8 @@ class Coach:
             f.close()
             # examples based on the model were already collected (loaded)
             self.skip_first_self_play = True
+
+
+if __name__ == '__main__':
+    coach = Coach(agent.AlphaZero(0), board_size='small')
+    coach.learn()

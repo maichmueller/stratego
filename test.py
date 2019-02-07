@@ -1,23 +1,29 @@
+import game
+import agent
+import coach
+import numpy as np
+from cythonized import utils
 
-import colorama
-from colorama import Fore, Back, Style
-import sys
-import time
+g = game.Game(agent.MiniMax(0), agent.Random(1), board_size='small')
+actions, relation_dict = utils.action_rep.actions, utils.action_rep.act_piece_relation
+while True:
 
-def main():
-    for x in range(0, 1000):
-        print(x, end=" ")
-        time.sleep(0.5)
+    actions_mask = utils.get_actions_mask(g.state.board, g.move_count % 2,
+                                          relation_dict,
+                                          actions)
+    lm = []
+    for idx, legal in enumerate(actions_mask):
+        if legal:
+            lm.append(g.state.action_to_move(idx, g.move_count % 2))
 
+    #print(lm)
 
-def print_round_results(i, n, ag_0, ag_1, red_won, blue_won):
-    red = Fore.RED
-    blue = Fore.BLUE
-    rs = Style.RESET_ALL
-    print(f'\r{f"Game {i}/{n}".center(10)} : {f"{red}{str(ag_0).center(10)}{rs}"}{red_won} vs '
-          f'{blue_won} {f"{blue}{str(ag_1).center(10)}{rs}"}',
-          end='', flush=True)
-
-
-if __name__ == '__main__':
-    main()
+    if utils.get_poss_moves(g.state.board, g.move_count % 2):
+        move = lm[np.random.choice(len(lm))]
+        print(move)
+        r = g.run_step(move)
+    else:
+        r = 1
+    if r != 404:
+        print('Game done', flush=True)
+        g.reset()

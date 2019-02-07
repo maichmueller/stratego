@@ -19,9 +19,9 @@ class Game:
         utils.GameDef.set_board_size(board_size)
         self.obstacle_positions, self.types_available, self.game_dim = utils.GameDef.get_game_specs()
 
+        # self.move_count = np.random.randint(0, 1)
+        self.move_count = 0
         self.reset()
-
-        self.move_count = 1  # agent 1 starts
 
         # reinforcement learning attributes
         self.score = 0
@@ -37,10 +37,8 @@ class Game:
         self.reward_kill = 0  # kill enemy figure reward
         self.reward_die = 0  # lose to enemy figure
 
-        self.action_rep_dict, self.action_rep_moves, self.action_rep_pieces = [None] * 3
-
     def __str__(self):
-        return '-'.join((repr(piece) for piece in self.state.board.flatten()))
+        return np.array_repr(self.state.board)
 
     def __hash__(self):
         return hash(str(self))
@@ -78,9 +76,20 @@ class Game:
         else:
             raise ValueError('Missing board information.')
 
-        self.state = GameState(board)
+        self.state = GameState(board, move_count=self.move_count)
         self.agents[0].install_board(self.state.board, reset=True)
         self.agents[1].install_board(self.state.board, reset=True)
+
+        action_rep = utils.action_rep
+
+        if self.agents[0].learner:
+            self.agents[0].set_action_rep(actors=action_rep.actors,
+                                          actions=action_rep.actions,
+                                          relation_dict=action_rep.act_piece_relation)
+        if self.agents[1].learner:
+            self.agents[1].set_action_rep(actors=action_rep.actors,
+                                          actions=action_rep.actions,
+                                          relation_dict=action_rep.act_piece_relation)
 
         self.game_replay = GameReplay(self.state.board)
 
@@ -97,7 +106,7 @@ class Game:
         while not game_over:
             print_board(self.state.board)
             rewards = self.run_step()
-            if rewards:
+            if rewards != 404:
                 game_over = True
         print_board(self.state.board)
         return rewards
@@ -133,7 +142,7 @@ class Game:
         self.move_count += 1
         for agent_ in self.agents:
             agent_.move_count = self.move_count
-        return 0
+        return 404
 
     @staticmethod
     def _draw_random_setup(types_available, team, game_dim):
@@ -212,42 +221,8 @@ class Game:
         if self.agents[(turn + 1) % 2].learner:
             self.agents[(turn + 1) % 2].add_reward(self.reward_loss)
 
-    def get_action_rep(self):
-        if any([x is None for x in (self.action_rep_dict, self.action_rep_moves, self.action_rep_pieces)]):
-            action_rep_pieces = []
-            action_rep_moves = []
-            action_rep_dict = dict()
-            for type_ in self.types_available:
-                version = 1
-                type_v = str(type_) + "_" + str(version)
-                while type_v in action_rep_pieces:
-                    version += 1
-                    type_v = type_v[:-1] + str(version)
-                if type_ in [0, 11]:
-                    continue
-                elif type_ == 2:
-                    actions = [(0 + i, 0) for i in range(1, self.game_dim)] + \
-                              [(0, i) for i in range(1, self.game_dim)] + \
-                              [(- i, 0) for i in range(1, self.game_dim)] + \
-                              [(0, - i) for i in range(1, self.game_dim)]
-                    len_acts = len(actions)
-                    len_acts_sofar = len(action_rep_moves)
-                    action_rep_dict[type_v] = list(range(len_acts_sofar, len_acts_sofar + len_acts))
-                    action_rep_pieces += [type_v] * len_acts
-                    action_rep_moves += actions
-                else:
-                    actions = [(1, 0),
-                               (0, 1),
-                               (-1, 0),
-                               (0, - 1)]
-                    action_rep_dict[type_v] = list(range(len(action_rep_moves), len(action_rep_moves) + 4))
-                    action_rep_pieces += [type_v] * 4
-                    action_rep_moves += actions
-            self.action_rep_dict = action_rep_dict
-            self.action_rep_moves = action_rep_moves
-            self.action_rep_pieces = action_rep_pieces
-
-        return self.action_rep_dict, self.action_rep_moves, self.action_rep_pieces
+    def get_action_rep(self, force=False):
+        return self.state.get_action_rep(force=force)
 
 
 class GameState:
@@ -262,9 +237,19 @@ class GameState:
         self.game_dim = board.shape[0]
         self.obstacle_positions = utils.GameDef.get_game_specs()[0]
 
+        self.act_piece_relation = None
+        self.actions = None
+        self.actors = None
+        self.action_dim = None
+        self.actors_desc_relation = None
+        self.action_dim = None
+        self.actors_desc_relation = None
+
+        self.canonical_teams = True
+
         self.move_count = move_count
 
-        self.terminal = 0
+        self.terminal = 404
         self.check_terminal()
         self.terminal_checked = True
 
@@ -282,6 +267,12 @@ class GameState:
             for type_, freq in Counter(utils.GameDef.get_game_specs()[1]).items():
                 dead_pieces_dict[type_] = freq - pcs[type_]
             self.dead_pieces[team] = dead_pieces_dict
+
+    def __str__(self):
+        return np.array_repr(self.board)
+
+    def __hash__(self):
+        return hash(str(self))
 
     def update_board(self, pos, piece):
         """
@@ -318,7 +309,7 @@ class GameState:
                 self.terminal = 2  # agent 0 wins by moves
 
         if self.move_count is not None and self.move_count > 500:
-            self.terminal = 404
+            self.terminal = 0
 
         self.terminal_checked = True
 
@@ -328,11 +319,9 @@ class GameState:
         """
         from_ = move[0]
         to_ = move[1]
-
         fight_outcome = None
 
         board = self.board
-
         # if not utils.is_legal_move(self.board, move):
         #    return False  # illegal move chosen
 
@@ -357,6 +346,8 @@ class GameState:
             self.update_board(to_, board[from_])
             self.update_board(from_, None)
         # self.game_replay.add_move(move, (board[from_], board[to_]), self.move_count % 2, self.move_count)
+
+        self.move_count += 1
         return fight_outcome
 
     def fight(self, piece_att, piece_def):
@@ -379,6 +370,175 @@ class GameState:
         if not self.terminal_checked:
             self.check_terminal(*kwargs)
         return self.terminal
+
+    # def state_represent(self, player=0):
+    #     conditions = []
+    #     other = (player + 1) % 2
+    #
+    #     # own team
+    #     # flag, 1 , 10, bombs
+    #     conditions += [(player, t, v) for (t, v) in zip([0, 1, 10, 11], [1]*4)]
+    #     # 2's, 3 versions
+    #     conditions += [(player, t, v) for (t, v) in zip([2]*3, [1, 2, 3])]
+    #     # 3's, 2 versions
+    #     conditions += [(player, t, v) for (t, v) in zip([3]*2, [1, 2])]
+    #
+    #     # opponent team
+    #     # flag, 1 , 10, bombs
+    #     conditions += [(other, t, v) for (t, v) in zip([0, 1, 10, 11], [1]*4)]
+    #     # 2's, 3 versions
+    #     conditions += [(other, t, v) for (t, v) in zip([2]*3, [1, 2, 3])]
+    #     # 3's, 2 versions
+    #     conditions += [(other, t, v) for (t, v) in zip([3]*2, [1, 2])]
+    #
+    #     # obstacle
+    #     conditions += [(99, 99, 1)]
+    #
+    #     def check(piece, team, type_, version):
+    #         return 1 * (piece.team == team and piece.type == type_ and piece.version == version)
+    #
+    #     board = self.board
+    #     state_dim = len(conditions)
+    #     board_state = np.zeros((1, state_dim, self.game_dim, self.game_dim))  # zeros for empty field
+    #     for pos, val in np.ndenumerate(board):
+    #         p = board[pos]
+    #         if p is not None:  # piece on this field
+    #             for i, (team, type_, vers) in enumerate(conditions):
+    #                 board_state[(0, i) + pos] = check(p, team, type_, vers)  # represent type
+    #
+    #     return board_state
+
+    def state_represent(self, player=0):
+        conditions = []
+        other = (player + 1) % 2
+
+        # own team
+        # flag, 1 , 10, bombs
+        conditions += [(player, t) for t in [0, 1, 10, 11]]
+        # 2's, 3 versions
+        conditions += [(player, t) for t in [2]*3]
+        # 3's, 2 versions
+        conditions += [(player, t) for t in [3]*2]
+
+        # opponent team
+        # flag, 1 , 10, bombs
+        conditions += [(other, t) for t in [0, 1, 10, 11]]
+        # 2's, 3 versions
+        conditions += [(other, t) for t in [2]*3]
+        # 3's, 2 versions
+        conditions += [(other, t) for t in [3]*2]
+
+        # obstacle
+        conditions += [(99, 99)]
+
+        def check(piece, team, type_):
+            return 1 * (piece.team == team and piece.type == type_)
+
+        board = self.board
+        state_dim = len(conditions)
+        board_state = np.zeros((1, state_dim, self.game_dim, self.game_dim))  # zeros for empty field
+        for pos, val in np.ndenumerate(board):
+            p = board[pos]
+            if p is not None:  # piece on this field
+                for i, (team, type_) in enumerate(conditions):
+                    board_state[(0, i) + pos] = check(p, team, type_)  # represent type
+
+        return board_state
+    #
+    # def get_action_rep(self, force=False):
+    #     if force or any([x is None for x in (self.actors, self.actions, self.act_piece_relation)]):
+    #         action_rep_pieces = []
+    #         action_rep_moves = []
+    #         action_rep_dict = dict()
+    #         for type_ in sorted(utils.GameDef.get_game_specs()[1]):
+    #             version = 1
+    #             type_v = str(type_) + "_" + str(version)
+    #             while type_v in action_rep_pieces:
+    #                 version += 1
+    #                 type_v = type_v[:-1] + str(version)
+    #             if type_ in [0, 11]:
+    #                 continue
+    #             elif type_ == 2:
+    #                 actions = [(0 + i, 0) for i in range(1, self.game_dim)] + \
+    #                           [(0, i) for i in range(1, self.game_dim)] + \
+    #                           [(- i, 0) for i in range(1, self.game_dim)] + \
+    #                           [(0, - i) for i in range(1, self.game_dim)]
+    #                 len_acts = len(actions)
+    #                 len_acts_sofar = len(action_rep_moves)
+    #                 action_rep_dict[type_v] = list(range(len_acts_sofar, len_acts_sofar + len_acts))
+    #                 action_rep_pieces += [type_v] * len_acts
+    #                 action_rep_moves += actions
+    #             else:
+    #                 actions = [(1, 0),
+    #                            (0, 1),
+    #                            (-1, 0),
+    #                            (0, - 1)]
+    #                 action_rep_dict[type_v] = list(range(len(action_rep_moves), len(action_rep_moves) + 4))
+    #                 action_rep_pieces += [type_v] * 4
+    #                 action_rep_moves += actions
+    #         self.act_piece_relation = action_rep_dict
+    #         self.actions = tuple(action_rep_moves)
+    #         self.actors = tuple(action_rep_pieces)
+    #         self.action_dim = len(action_rep_moves)
+    #
+    #     return self.actors, self.actions, self.act_piece_relation
+
+    def force_canonical(self, player):
+        """
+        Make the given player be team 0.
+        :param player: int, the team to convert to
+        """
+        if player == 0 and self.canonical_teams:
+            # player 0 is still team 0
+            return
+        elif player == 1 and not self.canonical_teams:
+            # player 1 has already been made 0 previously
+            return
+        else:
+            # flip team 0 and 1 and note the change in teams
+            self.canonical_teams = not self.canonical_teams
+            for piece in self.board.flatten():
+                # flip all team attributes
+                if piece is not None:
+                    piece.team ^= 1
+
+    def action_to_move(self, action_id, team, **kwargs):
+        """
+        Converting an action (integer between 0 and action_dim) to a move on the board,
+        according to the action representation specified in self.piece_action
+        :param action: action integer e.g. 3
+        :return: move e.g. ((0, 0), (0, 1))
+        """
+        if action_id is None:
+            return None
+        actions = utils.action_rep.actions
+        actors = utils.action_rep.actors
+        action = actions[action_id]
+
+        piece_desc = actors[action_id]
+        piece = self.relate_actor_desc(piece_desc, team, actors, **kwargs)
+        piece_pos = piece.position  # where is the piece
+
+        pos_to = (piece_pos[0] + action[0], piece_pos[1] + action[1])
+        move = (piece_pos, pos_to)
+        return move
+
+    def relate_actor_desc(self, desc, team, actors, force=False):
+        if force or self.actors_desc_relation is None:
+            self.actors_desc_relation = defaultdict(list)
+            for actor in set(actors):
+                type_, version = list(map(int, actor.split('_')))
+                for piece in self.board.flatten():
+                    if piece is not None and piece.type == type_ and piece.version == version:
+                        self.actors_desc_relation[actor].append(piece)
+
+        potentials = self.actors_desc_relation[desc]
+        for piece in potentials:
+            if piece.team == team:
+                wanted_piece = piece
+                break
+
+        return wanted_piece
 
 
 class GameReplay:

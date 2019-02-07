@@ -2,13 +2,14 @@
 Pieces
 """
 import numpy as np
+from cythonized import utils
 
 
 class Piece:
     def __init__(self, type, team, position):
         self.position = position
         # self.positions_history = [position]
-        self.unique_identifier = np.random.randint(0, 10000)
+        self.id = utils.set_id()
         self.potential_types = [0, 1, 2, 3, 10, 11]
         self.version = 1
         self.dead = False
@@ -30,14 +31,10 @@ class Piece:
             self.move_radius = 1
 
     def __str__(self):  # for printing pieces on the board return type of piece
-        if self.type == 99:
-            type_ = ''
-        else:
-            type_ = self.type
-        return f'{type_}'
+        return str(self.type)
 
     def __repr__(self):
-        return f'{self.team}_{self.type}_{1*self.hidden}'
+        return f'{self.team}-{self.type}.{self.version}_{1*self.hidden}'
 
     def change_position(self, new_pos):
         # self.positions_history.append(new_pos)

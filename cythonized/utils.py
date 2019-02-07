@@ -9,6 +9,17 @@ import torch
 from torch.nn import functional as F
 from torch.autograd import Variable
 import copy
+import random
+
+
+ID_SET = set(range(100000))
+
+
+def set_id():
+    global ID_SET
+    id_ = random.sample(ID_SET, 1)
+    ID_SET -= set(id_)
+    return id_
 
 
 class GameDefaults:
@@ -76,6 +87,10 @@ def is_legal_move(board, move_to_check):
         if not -1 < x < board.shape[0]:
             return False
 
+    # piece to move is not at this position
+    if board[pos_before] is None:
+        return False
+
     if not board[pos_after] is None:
         if board[pos_after].team == board[pos_before].team:
             return False  # cant fight own pieces
@@ -98,12 +113,61 @@ def is_legal_move(board, move_to_check):
     return True
 
 
-def get_act_repr_mask(board, team, action_rep_dict, action_rep_moves, *args):
+class ActionRep:
+    def __init__(self):
+        self.actors = None
+        self.actions = None
+        self.act_piece_relation = None
+        self.action_dim = None
+        self.game_dim = GameDef.get_game_specs()[2]
+        self.build_action_rep()
+
+    def build_action_rep(self, force=False):
+        if force or any([x is None for x in (self.actors, self.actions, self.act_piece_relation)]):
+            action_rep_pieces = []
+            action_rep_moves = []
+            action_rep_dict = dict()
+            for type_ in sorted(GameDef.get_game_specs()[1]):
+                version = 1
+                type_v = str(type_) + "_" + str(version)
+                while type_v in action_rep_pieces:
+                    version += 1
+                    type_v = type_v[:-1] + str(version)
+                if type_ in [0, 11]:
+                    continue
+                elif type_ == 2:
+                    actions = [(i, 0) for i in range(1, self.game_dim)] + \
+                              [(0, i) for i in range(1, self.game_dim)] + \
+                              [(-i, 0) for i in range(1, self.game_dim)] + \
+                              [(0, -i) for i in range(1, self.game_dim)]
+                    len_acts = len(actions)
+                    len_acts_sofar = len(action_rep_moves)
+                    action_rep_dict[type_v] = list(range(len_acts_sofar, len_acts_sofar + len_acts))
+                    action_rep_pieces += [type_v] * len_acts
+                    action_rep_moves += actions
+                else:
+                    actions = [(1, 0),
+                               (0, 1),
+                               (-1, 0),
+                               (0, -1)]
+                    action_rep_dict[type_v] = list(range(len(action_rep_moves), len(action_rep_moves) + 4))
+                    action_rep_pieces += [type_v] * 4
+                    action_rep_moves += actions
+            self.act_piece_relation = action_rep_dict
+            self.actions = tuple(action_rep_moves)
+            self.actors = tuple(action_rep_pieces)
+            self.action_dim = len(action_rep_moves)
+
+
+action_rep = ActionRep()
+
+
+def get_actions_mask(board, team, action_rep_dict, action_rep_moves):
     """
     :return: List of possible actions for agent of team 'team'
     """
     game_dim = board.shape[0]
-    actions_mask = np.zeros(len(action_rep_moves))
+    actions_mask = np.zeros(len(action_rep_moves), dtype=int)
     for pos, piece in np.ndenumerate(board):
         if piece is not None:  # board position has a piece on it
             if piece.team == team:
