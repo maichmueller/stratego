@@ -16,6 +16,7 @@ from pickle import Pickler, Unpickler
 from random import shuffle
 from arena import Arena
 import models
+from tqdm.auto import tqdm
 
 
 class Coach:
@@ -75,7 +76,7 @@ class Coach:
 
         while True:
             ep_step += 1
-            utils.print_board(self.game.state.board)
+            # utils.print_board(self.game.state.board)
             temp = int(ep_step < self.temp_thresh)
 
             turn = self.game.move_count % 2
@@ -83,12 +84,6 @@ class Coach:
 
             action = np.random.choice(len(pi), p=pi)
             move = self.game.state.action_to_move(action, 0, force=True)
-            print(move)
-            moves = []
-            for i, a in enumerate(pi):
-                if a > 0:
-                    moves.append(self.game.state.action_to_move(i, 0, force=True))
-            # print(moves)
             self.game.state.force_canonical(0)
             if turn == 1:
                 move = invert_move(move)
@@ -117,21 +112,11 @@ class Coach:
             if not self.skip_first_self_play or i > 1:
                 iter_train_expls = deque([])
 
-                eps_time = AverageMeter()
-                bar = Bar(desc='Self Play', total=self.num_episodes)
-                end = time.time()
-
-                for eps in range(self.num_episodes):
+                for eps in tqdm(range(self.num_episodes)):
                     self.mcts = MCTS(self.game, self.nnet)  # reset search tree
                     iter_train_expls += self.exec_ep()
-
+                    self.game.reset()
                     # bookkeeping + plot progress
-                    eps_time.update(time.time() - end)
-                    end = time.time()
-                    bar.suffix = f'({eps+1}/{self.num_episodes}) ' \
-                        f'Eps Time: {eps_time.avg:.3f}s | Total: {bar.elapsed_td:} | ETA: {bar.eta_td:}'
-                    bar.next()
-                bar.finish()
 
                 # save the iteration examples to the history
                 self.train_expls_hist.append(iter_train_expls)

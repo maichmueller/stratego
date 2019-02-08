@@ -136,7 +136,7 @@ class Game:
 
         # test if game is over
         terminal = self.state.is_terminal(flag_only=True, move_count=self.move_count)
-        if terminal:  # flag discovered, or draw
+        if terminal != 404:  # flag discovered, or draw
             return terminal
 
         self.move_count += 1

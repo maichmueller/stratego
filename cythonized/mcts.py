@@ -50,6 +50,9 @@ class MCTS():
         s = str(self.game.state)
         counts = [self.Nsa[(s, a)] if (s, a) in self.Nsa else 0 for a in range(utils.action_rep.action_dim)]
         # self.game.state.force_canonical(0)  # reset board to natural teams (0 is 0 again)
+        if sum(counts) == 0:
+            # game ended and this state thus doesnt have prob values
+            return None
 
         if temp == 0:
             best_act = np.argmax(counts)
