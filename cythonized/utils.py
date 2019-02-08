@@ -169,39 +169,39 @@ def get_actions_mask(board, team, action_rep_dict, action_rep_moves):
     game_dim = board.shape[0]
     actions_mask = np.zeros(len(action_rep_moves), dtype=int)
     for pos, piece in np.ndenumerate(board):
-        if piece is not None:  # board position has a piece on it
-            if piece.team == team:
-                # check which moves are possible
-                if piece.can_move:
-                    p_range = np.array(action_rep_dict[str(piece.type) + "_" + str(piece.version)])
-                    p_moves = [action_rep_moves[i] for i in p_range]
-                    if piece.type == 2:
-                        poss_fields = [(pos[0] + i, pos[1]) for i in range(1, game_dim - pos[0])] +\
-                                      [(pos[0], pos[1] + i) for i in range(1, game_dim - pos[1])] + \
-                                      [(pos[0] - i, pos[1]) for i in range(1, pos[0]+1)] +\
-                                      [(pos[0], pos[1] - i) for i in range(1, pos[1]+1)]
-                        for pos_to in poss_fields:
-                            move = (pos, pos_to)
-                            if is_legal_move(board, move):
-                                base_move = (pos_to[0] - pos[0], pos_to[1] - pos[1])
-                                base_move_idx = p_moves.index(base_move)
-                                actions_mask[p_range.min() + base_move_idx] = 1
+        if piece is not None and piece.team == team and piece.can_move:  # board position has a piece on it
+            # get the index range of this piece in the moves list
+            p_range = np.array(action_rep_dict[str(piece.type) + "_" + str(piece.version)])
+            # get the associated moves to this piece
+            p_moves = [action_rep_moves[i] for i in p_range]
+            if piece.type == 2:
+                poss_fields = [(pos[0] + i, pos[1]) for i in range(1, game_dim - pos[0])] +\
+                              [(pos[0], pos[1] + i) for i in range(1, game_dim - pos[1])] + \
+                              [(pos[0] - i, pos[1]) for i in range(1, pos[0]+1)] +\
+                              [(pos[0], pos[1] - i) for i in range(1, pos[1]+1)]
 
-                    else:
-                        poss_fields = [(pos[0]+1, pos[1]),
-                                       (pos[0], pos[1]+1),
-                                       (pos[0]-1, pos[1]),
-                                       (pos[0], pos[1]-1)]
-                        for pos_to in poss_fields:
-                            move = (pos, pos_to)
-                            if is_legal_move(board, move):
-                                base_move = (pos_to[0] - pos[0], pos_to[1] - pos[1])
-                                base_move_idx = p_moves.index(base_move)
-                                actions_mask[p_range.min() + base_move_idx] = 1
+                for pos_to in poss_fields:
+                    move = (pos, pos_to)
+                    if is_legal_move(board, move):
+                        base_move = (pos_to[0] - pos[0], pos_to[1] - pos[1])
+                        base_move_idx = p_moves.index(base_move)
+                        actions_mask[p_range.min() + base_move_idx] = 1
+
+            else:
+                poss_fields = [(pos[0]+1, pos[1]),
+                               (pos[0], pos[1]+1),
+                               (pos[0]-1, pos[1]),
+                               (pos[0], pos[1]-1)]
+                for pos_to in poss_fields:
+                    move = (pos, pos_to)
+                    if is_legal_move(board, move):
+                        base_move = (pos_to[0] - pos[0], pos_to[1] - pos[1])
+                        base_move_idx = p_moves.index(base_move)
+                        actions_mask[p_range.min() + base_move_idx] = 1
     return actions_mask
 
 
-def print_board(board, same_figure=True):
+def print_board(board, same_figure=True, block=False):
     """
     Plots a board object in a pyplot figure
     :param same_figure: Should the plot be in the same figure?
@@ -252,7 +252,7 @@ def print_board(board, same_figure=True):
     # invert y makes numbering more natural; puts agent 1 on bottom, 0 on top !
     plt.gca().invert_yaxis()
     plt.pause(1)
-    plt.show(block=False)
+    plt.show(block=block)
 
 
 def get_poss_moves(board, team):

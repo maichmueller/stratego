@@ -4,7 +4,7 @@ import agent
 import numpy as np
 from matplotlib import pyplot as plt
 
-from cythonized.mcts import MCTS
+from cythonized.mcts import MCTS, utils
 
 from cythonized.utils import AverageMeter
 from progressBar.progress.bar import Bar
@@ -19,7 +19,7 @@ import models
 
 
 class Coach:
-    def __init__(self, student, num_iters=100, *args, **kwargs):
+    def __init__(self, student, num_iters=100, **kwargs):
         # super().__init__(*args, **kwargs)
 
         self.num_iters = num_iters
@@ -68,21 +68,37 @@ class Coach:
         state = self.game.state
         ep_step = 0
 
+        def invert_move(move):
+            from_, to_ = move
+            return ((self.game.game_dim-1 - from_[0], self.game.game_dim-1 - from_[1]),
+                    (self.game.game_dim-1 - to_[0], self.game.game_dim-1 - to_[1]))
+
         while True:
             ep_step += 1
+            utils.print_board(self.game.state.board)
             temp = int(ep_step < self.temp_thresh)
 
             turn = self.game.move_count % 2
             pi = self.mcts.get_action_prob(state, player=turn, temp=temp)
 
             action = np.random.choice(len(pi), p=pi)
-            self.game.run_step(move=self.game.state.action_to_move(action, turn))
+            move = self.game.state.action_to_move(action, 0, force=True)
+            print(move)
+            moves = []
+            for i, a in enumerate(pi):
+                if a > 0:
+                    moves.append(self.game.state.action_to_move(i, 0, force=True))
+            # print(moves)
+            self.game.state.force_canonical(0)
+            if turn == 1:
+                move = invert_move(move)
+            self.game.run_step(move=move)
 
             r = self.game.state.is_terminal()
-            if r == 404:
+            if r == 0:
                 r = self.reward_draw
 
-            if r != 0:
+            if r != 404:
                 return self.game.state.board, pi, r
 
     def learn(self):

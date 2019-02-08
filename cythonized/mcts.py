@@ -9,6 +9,7 @@ from cythonized import utils
 
 import numpy as np
 import sys
+from tqdm import tqdm
 
 EPS = 1e-8
 
@@ -42,11 +43,13 @@ class MCTS():
                    proportional to Nsa[(s,a)]**(1./temp)
         """
         for i in range(self.num_mcts_sims):
-            print('Iteration:', i)
+            # print('\rIteration:', i, end='')
             self.search(deepcopy(state), player)
 
+        self.game.state.force_canonical(player)
         s = str(self.game.state)
         counts = [self.Nsa[(s, a)] if (s, a) in self.Nsa else 0 for a in range(utils.action_rep.action_dim)]
+        # self.game.state.force_canonical(0)  # reset board to natural teams (0 is 0 again)
 
         if temp == 0:
             best_act = np.argmax(counts)
@@ -80,10 +83,11 @@ class MCTS():
 
         if s not in self.Es:
             self.Es[s] = state.is_terminal()
+        elif state.move_count > state.max_nr_turns:
+            return 0
         if self.Es[s] != 404:
             # terminal node
             return -self.Es[s]
-
         actions, relation_dict = utils.action_rep.actions, utils.action_rep.act_piece_relation
         actions_mask = utils.get_actions_mask(state.board, 0,
                                               relation_dict,
@@ -91,8 +95,8 @@ class MCTS():
 
         if s not in self.Ps:
             # leaf node
-            print('Leaf node reached.')
-            Ps, v = self.nnet.predict(torch.Tensor(state.state_represent(player)))
+            # print('Leaf node reached.')
+            Ps, v = self.nnet.predict(torch.Tensor(state.state_represent(0)))
             self.Ps[s] = Ps * actions_mask  # masking invalid moves
             sum_ps = np.sum(self.Ps[s])
             if sum_ps > 0:
@@ -120,25 +124,39 @@ class MCTS():
         best_action = -1
 
         # pick the action with the highest upper confidence bound
-        for a in range(utils.action_rep.action_dim):
-            if valids[a]:
-                # print('Valid:', a, self.game.action_to_move(a, player), flush=True)
-                if (s, a) in self.Qsa:
-                    u = self.Qsa[(s, a)] + self.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s]) / (1 + self.Nsa[(s, a)])
-                else:
-                    u = self.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s] + EPS)     # Q = 0 ?
+        for a in np.where(valids)[0]:
+            # print('Valid:', a, self.game.action_to_move(a, player), flush=True)
+            if (s, a) in self.Qsa:
+                u = self.Qsa[(s, a)] + self.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s]) / (1 + self.Nsa[(s, a)])
+            else:
+                u = self.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s] + EPS)     # Q = 0 ?
 
-                if u > cur_best:
-                    cur_best = u
-                    best_action = a
+            if u > cur_best:
+                cur_best = u
+                best_action = a
 
         a = best_action
-        move = state.action_to_move(a, 0)
+        move = state.action_to_move(a, 0, force=True)
 
-        print(f'Turn: {player} Action: {str(a).rjust(2)} Move: {move} '
-              f'Piece: {state.board[move[0]]}')
+        # print(f'Turn: {player} Action: {str(m).rjust(2)} Action Move: {actions[m]} '
+        #       f'Actor: {utils.action_rep.actors[m]} Move: {move} '
+        #       f'Piece: {state.board[move[0]]}')
 
-        state.do_move(move)
+        try:
+            state.do_move(move)
+        except Exception as e:
+            print('ERROR OCCURED')
+            print('Canonical:', state.canonical_teams)
+            print(s)
+            print([(i, self.Ps[s][i]) for i in range(64)])
+            print(not any([(s, a) in self.Qsa for a in np.where(valids)[0]]))
+            print('State-Action in Qs:', (s, a) in self.Qsa)
+            if (s, a) in self.Qsa:
+                print(self.Qsa[(s, a)])
+            else:
+                pass
+            utils.print_board(state.board, block=True)
+            raise e
         v = self.search(state, (player + 1) % 2)
 
         if (s, a) in self.Qsa:

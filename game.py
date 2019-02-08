@@ -20,7 +20,7 @@ class Game:
         self.obstacle_positions, self.types_available, self.game_dim = utils.GameDef.get_game_specs()
 
         # self.move_count = np.random.randint(0, 1)
-        self.move_count = 0
+        self.move_count = 1
         self.reset()
 
         # reinforcement learning attributes
@@ -248,6 +248,7 @@ class GameState:
         self.canonical_teams = True
 
         self.move_count = move_count
+        self.max_nr_turns = 500
 
         self.terminal = 404
         self.check_terminal()
@@ -308,7 +309,7 @@ class GameState:
             elif not utils.get_poss_moves(self.board, (turn + 1) % 2):
                 self.terminal = 2  # agent 0 wins by moves
 
-        if self.move_count is not None and self.move_count > 500:
+        if self.move_count is not None and self.move_count > self.max_nr_turns:
             self.terminal = 0
 
         self.terminal_checked = True
@@ -371,68 +372,31 @@ class GameState:
             self.check_terminal(*kwargs)
         return self.terminal
 
-    # def state_represent(self, player=0):
-    #     conditions = []
-    #     other = (player + 1) % 2
-    #
-    #     # own team
-    #     # flag, 1 , 10, bombs
-    #     conditions += [(player, t, v) for (t, v) in zip([0, 1, 10, 11], [1]*4)]
-    #     # 2's, 3 versions
-    #     conditions += [(player, t, v) for (t, v) in zip([2]*3, [1, 2, 3])]
-    #     # 3's, 2 versions
-    #     conditions += [(player, t, v) for (t, v) in zip([3]*2, [1, 2])]
-    #
-    #     # opponent team
-    #     # flag, 1 , 10, bombs
-    #     conditions += [(other, t, v) for (t, v) in zip([0, 1, 10, 11], [1]*4)]
-    #     # 2's, 3 versions
-    #     conditions += [(other, t, v) for (t, v) in zip([2]*3, [1, 2, 3])]
-    #     # 3's, 2 versions
-    #     conditions += [(other, t, v) for (t, v) in zip([3]*2, [1, 2])]
-    #
-    #     # obstacle
-    #     conditions += [(99, 99, 1)]
-    #
-    #     def check(piece, team, type_, version):
-    #         return 1 * (piece.team == team and piece.type == type_ and piece.version == version)
-    #
-    #     board = self.board
-    #     state_dim = len(conditions)
-    #     board_state = np.zeros((1, state_dim, self.game_dim, self.game_dim))  # zeros for empty field
-    #     for pos, val in np.ndenumerate(board):
-    #         p = board[pos]
-    #         if p is not None:  # piece on this field
-    #             for i, (team, type_, vers) in enumerate(conditions):
-    #                 board_state[(0, i) + pos] = check(p, team, type_, vers)  # represent type
-    #
-    #     return board_state
-
     def state_represent(self, player=0):
         conditions = []
         other = (player + 1) % 2
 
         # own team
         # flag, 1 , 10, bombs
-        conditions += [(player, t) for t in [0, 1, 10, 11]]
+        conditions += [(player, t, v) for (t, v) in zip([0, 1, 10, 11], [1]*4)]
         # 2's, 3 versions
-        conditions += [(player, t) for t in [2]*3]
+        conditions += [(player, t, v) for (t, v) in zip([2]*3, [1, 2, 3])]
         # 3's, 2 versions
-        conditions += [(player, t) for t in [3]*2]
+        conditions += [(player, t, v) for (t, v) in zip([3]*2, [1, 2])]
 
         # opponent team
         # flag, 1 , 10, bombs
-        conditions += [(other, t) for t in [0, 1, 10, 11]]
+        conditions += [(other, t, v) for (t, v) in zip([0, 1, 10, 11], [1]*4)]
         # 2's, 3 versions
-        conditions += [(other, t) for t in [2]*3]
+        conditions += [(other, t, v) for (t, v) in zip([2]*3, [1, 2, 3])]
         # 3's, 2 versions
-        conditions += [(other, t) for t in [3]*2]
+        conditions += [(other, t, v) for (t, v) in zip([3]*2, [1, 2])]
 
         # obstacle
-        conditions += [(99, 99)]
+        conditions += [(99, 99, 1)]
 
-        def check(piece, team, type_):
-            return 1 * (piece.team == team and piece.type == type_)
+        def check(piece, team, type_, version):
+            return 1 * (piece.team == team and piece.type == type_ and piece.version == version)
 
         board = self.board
         state_dim = len(conditions)
@@ -440,48 +404,47 @@ class GameState:
         for pos, val in np.ndenumerate(board):
             p = board[pos]
             if p is not None:  # piece on this field
-                for i, (team, type_) in enumerate(conditions):
-                    board_state[(0, i) + pos] = check(p, team, type_)  # represent type
+                for i, (team, type_, vers) in enumerate(conditions):
+                    board_state[(0, i) + pos] = check(p, team, type_, vers)  # represent type
 
         return board_state
+
+    # def state_represent(self, player=0):
+    #     conditions = []
+    #     other = (player + 1) % 2
     #
-    # def get_action_rep(self, force=False):
-    #     if force or any([x is None for x in (self.actors, self.actions, self.act_piece_relation)]):
-    #         action_rep_pieces = []
-    #         action_rep_moves = []
-    #         action_rep_dict = dict()
-    #         for type_ in sorted(utils.GameDef.get_game_specs()[1]):
-    #             version = 1
-    #             type_v = str(type_) + "_" + str(version)
-    #             while type_v in action_rep_pieces:
-    #                 version += 1
-    #                 type_v = type_v[:-1] + str(version)
-    #             if type_ in [0, 11]:
-    #                 continue
-    #             elif type_ == 2:
-    #                 actions = [(0 + i, 0) for i in range(1, self.game_dim)] + \
-    #                           [(0, i) for i in range(1, self.game_dim)] + \
-    #                           [(- i, 0) for i in range(1, self.game_dim)] + \
-    #                           [(0, - i) for i in range(1, self.game_dim)]
-    #                 len_acts = len(actions)
-    #                 len_acts_sofar = len(action_rep_moves)
-    #                 action_rep_dict[type_v] = list(range(len_acts_sofar, len_acts_sofar + len_acts))
-    #                 action_rep_pieces += [type_v] * len_acts
-    #                 action_rep_moves += actions
-    #             else:
-    #                 actions = [(1, 0),
-    #                            (0, 1),
-    #                            (-1, 0),
-    #                            (0, - 1)]
-    #                 action_rep_dict[type_v] = list(range(len(action_rep_moves), len(action_rep_moves) + 4))
-    #                 action_rep_pieces += [type_v] * 4
-    #                 action_rep_moves += actions
-    #         self.act_piece_relation = action_rep_dict
-    #         self.actions = tuple(action_rep_moves)
-    #         self.actors = tuple(action_rep_pieces)
-    #         self.action_dim = len(action_rep_moves)
+    #     # own team
+    #     # flag, 1 , 10, bombs
+    #     conditions += [(player, t) for t in [0, 1, 10, 11]]
+    #     # 2's, 3 versions
+    #     conditions += [(player, t) for t in [2]*3]
+    #     # 3's, 2 versions
+    #     conditions += [(player, t) for t in [3]*2]
     #
-    #     return self.actors, self.actions, self.act_piece_relation
+    #     # opponent team
+    #     # flag, 1 , 10, bombs
+    #     conditions += [(other, t) for t in [0, 1, 10, 11]]
+    #     # 2's, 3 versions
+    #     conditions += [(other, t) for t in [2]*3]
+    #     # 3's, 2 versions
+    #     conditions += [(other, t) for t in [3]*2]
+    #
+    #     # obstacle
+    #     conditions += [(99, 99)]
+    #
+    #     def check(piece, team, type_):
+    #         return 1 * (piece.team == team and piece.type == type_)
+    #
+    #     board = self.board
+    #     state_dim = len(conditions)
+    #     board_state = np.zeros((1, state_dim, self.game_dim, self.game_dim))  # zeros for empty field
+    #     for pos, val in np.ndenumerate(board):
+    #         p = board[pos]
+    #         if p is not None:  # piece on this field
+    #             for i, (team, type_) in enumerate(conditions):
+    #                 board_state[(0, i) + pos] = check(p, team, type_)  # represent type
+    #
+    #     return board_state
 
     def force_canonical(self, player):
         """
@@ -497,10 +460,12 @@ class GameState:
         else:
             # flip team 0 and 1 and note the change in teams
             self.canonical_teams = not self.canonical_teams
-            for piece in self.board.flatten():
+            self.board = np.flip(self.board)
+            for pos, piece in np.ndenumerate(self.board):
                 # flip all team attributes
-                if piece is not None:
+                if piece is not None and piece.team != 99:
                     piece.team ^= 1
+                    piece.position = pos
 
     def action_to_move(self, action_id, team, **kwargs):
         """
