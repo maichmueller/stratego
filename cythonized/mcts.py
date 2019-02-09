@@ -23,7 +23,7 @@ class MCTS():
         self.game = game
         self.nnet = nnet
         self.cpuct = cpuct
-        self.num_mcts_sims = num_mcts_sims
+        self.num_mcts_sims = max(1, num_mcts_sims)
         self.Qsa = {}       # stores Q values for s,a (as defined in the paper)
         self.Nsa = {}       # stores #times edge s,a was visited
         self.Ns = {}        # stores #times board s was visited
@@ -50,8 +50,8 @@ class MCTS():
         s = str(state)
         counts = [self.Nsa[(s, a)] if (s, a) in self.Nsa else 0 for a in range(utils.action_rep.action_dim)]
         # self.game.state.force_canonical(0)  # reset board to natural teams (0 is 0 again)
-        if r != 404:
-            # game ended and this state thus doesnt have prob values
+        if sum(counts) == 0:
+            # game ended, thus state doesnt have prob values to choose move from
             return r
 
         if temp == 0:
