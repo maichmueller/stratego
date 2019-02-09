@@ -135,7 +135,7 @@ class Game:
             self._update_fight_rewards(outcome, turn)
 
         # test if game is over
-        terminal = self.state.is_terminal(flag_only=True, move_count=self.move_count)
+        terminal = self.state.is_terminal(flag_only=True)
         if terminal != 404:  # flag discovered, or draw
             return terminal
 
@@ -305,9 +305,9 @@ class GameState:
             if turn is None:
                 turn = 0
             if not utils.get_poss_moves(self.board, turn):
-                self.terminal = -2  # agent 1 wins by moves
+                self.terminal = (-1)**(turn+1) * 2  # agent of turn loses by moves
             elif not utils.get_poss_moves(self.board, (turn + 1) % 2):
-                self.terminal = 2  # agent 0 wins by moves
+                self.terminal = (-1)**turn * 2  # agent of turn wins by moves
 
         if self.move_count is not None and self.move_count > self.max_nr_turns:
             self.terminal = 0
@@ -369,7 +369,7 @@ class GameState:
 
     def is_terminal(self, **kwargs):
         if not self.terminal_checked:
-            self.check_terminal(*kwargs)
+            self.check_terminal(**kwargs)
         return self.terminal
 
     def state_represent(self, player=0):

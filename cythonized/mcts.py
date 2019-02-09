@@ -44,15 +44,15 @@ class MCTS():
         """
         for i in range(self.num_mcts_sims):
             # print('\rIteration:', i, end='')
-            self.search(deepcopy(state), player)
+            r = self.search(deepcopy(state), player)
 
-        self.game.state.force_canonical(player)
-        s = str(self.game.state)
+        state.force_canonical(player)
+        s = str(state)
         counts = [self.Nsa[(s, a)] if (s, a) in self.Nsa else 0 for a in range(utils.action_rep.action_dim)]
         # self.game.state.force_canonical(0)  # reset board to natural teams (0 is 0 again)
-        if sum(counts) == 0:
+        if r != 404:
             # game ended and this state thus doesnt have prob values
-            return None
+            return r
 
         if temp == 0:
             best_act = np.argmax(counts)

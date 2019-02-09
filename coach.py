@@ -80,21 +80,28 @@ class Coach:
             temp = int(ep_step < self.temp_thresh)
 
             turn = self.game.move_count % 2
+
             pi = self.mcts.get_action_prob(state, player=turn, temp=temp)
+            if isinstance(pi, int):
+                state.force_canonical(0)
+                state.terminal_checked = False
+                r = state.is_terminal()
+                pi = None
+                return state.board, pi, r
 
             action = np.random.choice(len(pi), p=pi)
-            move = self.game.state.action_to_move(action, 0, force=True)
-            self.game.state.force_canonical(0)
+            state.force_canonical(player=turn)
+            move = state.action_to_move(action, 0, force=True)
+            state.force_canonical(0)
             if turn == 1:
                 move = invert_move(move)
-            self.game.run_step(move=move)
 
-            r = self.game.state.is_terminal()
+            r = self.game.run_step(move=move)
             if r == 0:
                 r = self.reward_draw
 
             if r != 404:
-                return self.game.state.board, pi, r
+                return state.board, pi, r
 
     def learn(self):
         """
