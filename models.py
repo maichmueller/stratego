@@ -12,6 +12,8 @@ from progressBar.progress.bar import Bar
 class NNetWrapper:
     def __init__(self, nnet, game_dim, action_dim):
         self.nnet = nnet
+        if nnet.device != 'cpu':
+            nnet.cuda()
         self.board_x, self.board_y = game_dim, game_dim
         self.action_size = action_dim
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -90,8 +92,7 @@ class NNetWrapper:
         # timing
         # start = time.time()
 
-        # preparing input
-        board = torch.FloatTensor(board)
+        # preparing
         board = torch.Tensor(board).to(self.device)
         # board = board.view(1, self.board_x, self.board_y)
         self.nnet.eval()
