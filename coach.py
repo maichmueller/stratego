@@ -29,7 +29,7 @@ class Coach:
         self.mcts_sims = 1000
         self.num_iters_trainex_hist = 7
         self.model_folder = './saved_models/'
-        self.temp_thresh = 1000
+        self.temp_thresh = 10
 
         self.score = 0
         self.reward = 0
@@ -49,8 +49,8 @@ class Coach:
         self.nnet = student.model
         self.opp_net = self.game.agents[1].model  # the competitor network
         self.mcts = MCTS(self.game, self.nnet)
-        self.train_expls_hist = []   # history of examples from args.numItersForTrainExamplesHistory latest iterations
-        self.skip_first_self_play = False  # can be overriden in loadTrainExamples()
+        self.train_expls_hist = []   # history of examples from num_iters_for_train_examples_history latest iterations
+        self.skip_first_self_play = False  # can be overriden in load_train_examples()
 
     def exec_ep(self):
         """
@@ -59,8 +59,8 @@ class Coach:
         trainExamples. The game is played till the game ends. After the game
         ends, the outcome of the game is used to assign values to each example
         in trainExamples.
-        It uses a temp=1 if episodeStep < tempThreshold, and thereafter
-        uses temp=0.
+        It uses a expl_rate=1 if episodeStep < tempThreshold, and thereafter
+        uses expl_rate=0.
         Returns:
             trainExamples: a list of examples of the form (board,pi,v)
                            pi is the MCTS informed policy vector, v is +1 if
@@ -77,11 +77,11 @@ class Coach:
         while True:
             ep_step += 1
             # utils.print_board(self.game.state.board)
-            temp = int(ep_step < self.temp_thresh)
+            expl_rate = int(ep_step < self.temp_thresh)
 
             turn = self.game.move_count % 2
 
-            pi = self.mcts.get_action_prob(state, player=turn, temp=temp)
+            pi = self.mcts.get_action_prob(state, player=turn, expl_rate=expl_rate)
             if isinstance(pi, int):
                 state.force_canonical(0)
                 state.terminal_checked = False
@@ -93,6 +93,7 @@ class Coach:
             state.force_canonical(player=turn)
             move = state.action_to_move(action, 0, force=True)
             state.force_canonical(0)
+
             if turn == 1:
                 move = invert_move(move)
 
@@ -147,14 +148,18 @@ class Coach:
             self.opp_net.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
             pmcts = MCTS(self.game, self.opp_net)
 
-            self.nnet.train(train_examples)
+            self.nnet.train(train_examples, 100)
             nmcts = MCTS(self.game, self.nnet)
 
             print('PITTING AGAINST PREVIOUS VERSION')
-            test_ag_0 = agent.Agent(0)
-            test_ag_0.decide_move = lambda x: np.argmax(nmcts.get_action_prob(x, temp=0))
-            test_ag_1 = agent.Agent(1)
-            test_ag_1.decide_move = lambda x: np.argmax(pmcts.get_action_prob(x, temp=0))
+            test_ag_0 = agent.AlphaZero(0)
+            test_ag_0.low_train = True
+            test_ag_0.model.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
+            # test_ag_0.decide_move = lambda x: np.argmax(nmcts.get_action_prob(x, expl_rate=0))
+            test_ag_1 = agent.AlphaZero(1)
+            test_ag_1.low_train = True
+            test_ag_1.model.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
+            # test_ag_1.decide_move = lambda x: np.argmax(pmcts.get_action_prob(x, expl_rate=0))
             arena = Arena(test_ag_0, test_ag_1, self.game.board_size)
             ag_0_wins, ag_1_wins, draws = arena.pit(num_sims=self.num_iters)
 

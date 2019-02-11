@@ -12,7 +12,7 @@ from progressBar.progress.bar import Bar
 class NNetWrapper:
     def __init__(self, nnet, game_dim, action_dim):
         self.nnet = nnet
-        if nnet.device != 'cpu':
+        if nnet.device.type != 'cpu':
             nnet.cuda()
         self.board_x, self.board_y = game_dim, game_dim
         self.action_size = action_dim
@@ -25,7 +25,7 @@ class NNetWrapper:
         optimizer = optim.Adam(self.nnet.parameters())
 
         for epoch in range(epochs):
-            print('EPOCH ::: ' + str(epoch+1))
+            print('\rEPOCH ::: ' + str(epoch+1), end='')
             self.nnet.train()
             data_time = AverageMeter()
             batch_time = AverageMeter()

@@ -34,13 +34,13 @@ class MCTS():
 
         self.same_reps = defaultdict(list)
 
-    def get_action_prob(self, state, player, temp=1):
+    def get_action_prob(self, state, player, expl_rate=1):
         """
         This function performs num_mcts_sims simulations of MCTS starting from
         board.
         Returns:
             probs: a policy vector where the probability of the ith action is
-                   proportional to Nsa[(s,a)]**(1./temp)
+                   proportional to Nsa[(s,a)]**(1./expl_rate)
         """
         for i in range(self.num_mcts_sims):
             # print('\rIteration:', i, end='')
@@ -54,13 +54,13 @@ class MCTS():
             # game ended, thus state doesnt have prob values to choose move from
             return r
 
-        if temp == 0:
-            best_act = np.argmax(counts)
+        if expl_rate == 0:
+            best_act = int(np.argmax(counts))
             probs = [0]*len(counts)
             probs[best_act] = 1
             return probs
 
-        counts = [x**(1./temp) for x in counts]
+        counts = [x**(1./expl_rate) for x in counts]
         probs = [x/float(sum(counts)) for x in counts]
         return probs
 

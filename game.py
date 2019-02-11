@@ -95,27 +95,27 @@ class Game:
 
         self.move_count = 1  # agent 1 starts
 
-    def run_game(self, show=False):
+    def run_game(self, show=False, **kwargs):
         game_over = False
         rewards = None
         if show:
             print_board = utils.print_board
         else:
-            def print_board(*args): pass
+            def print_board(*unused, **unusedkw): pass
 
         while not game_over:
             print_board(self.state.board)
-            rewards = self.run_step()
+            rewards = self.run_step(**kwargs)
             if rewards != 404:
                 game_over = True
         print_board(self.state.board)
         return rewards
 
-    def run_step(self, move=None):
+    def run_step(self, move=None, **kwargs):
         turn = self.move_count % 2  # player 1 or player 0
 
         if move is None:
-            new_move = self.agents[turn].decide_move()
+            new_move = self.agents[turn].decide_move(**kwargs)
         else:
             new_move = move
 

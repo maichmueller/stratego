@@ -25,11 +25,35 @@ import re
 
 import colorama
 from colorama import Fore, Style
-
+from collections import defaultdict
 colorama.init()
 
 
 class Arena:
+    class WinStats:
+        def __init__(self):
+            self.wins = 0
+            self.win_reasons = defaultdict(int)
+            self.rounds_count = []
+            self.\
+                draws = 0
+
+        def add_win(self, reason, count=None):
+            self.win_reasons[reason] += 1
+            self.wins += 1
+            if count is not None:
+                self.rounds_count.append((1, count))
+
+        def add_draw(self, count=None):
+            self.draws += 1
+            if count is not None:
+                self.rounds_count.append((0, count))
+
+        def get_count_stats(self):
+            s = sum([x[0] for x in self.rounds_count])
+            avg = s / len(self.rounds_count)
+            return avg , s
+
     def __init__(self, agent_0, agent_1, board_size='small', setup_0=None, setup_1=None):
         self.agent_0 = agent_0
         self.agent_1 = agent_1
@@ -49,15 +73,8 @@ class Arena:
         :param show_game: (optional) boolean, whether to show the game or not
         :return: None, writes results to a file named after the agents acting
         """
-        blue_won = 0
-        blue_wins_bc_flag = 0
-        blue_wins_bc_no_moves_left = 0
-        red_won = 0
-        red_wins_bc_flag = 0
-        red_wins_bc_no_moves_left = 0
-        rounds_counter_per_game = []
-        rounds_counter_win_agent_0 = []
-        rounds_counter_win_agent_1 = []
+        blue_wins = self.WinStats()
+        red_wins = self.WinStats()
 
         game_times_0 = []
         game_times_1 = []
@@ -79,45 +96,38 @@ class Arena:
 
             game_time_s = timer()
 
-            for step in range(2000):
+            while True:
                 game_reward = game_.run_game(show_game)
-                if game_reward != 0:
+                if game_reward != 404:
                     if game_reward == 1:  # red won by finding flag
                         game_times_0.append(timer() - game_time_s)
-                        red_won += 1
-                        red_wins_bc_flag += 1
-                        rounds_counter_win_agent_0.append(game_.move_count)
+                        red_wins.add_win('flag', game_.move_count)
                     elif game_reward == 2:  # red won by moves
                         game_times_0.append(timer() - game_time_s)
-                        red_won += 1
-                        red_wins_bc_no_moves_left += 1
-                        rounds_counter_win_agent_0.append(game_.move_count)
+                        red_wins.add_win('moves', game_.move_count)
                     elif game_reward == -1:  # blue won by finding flag
                         game_times_1.append(timer() - game_time_s)
-                        blue_won += 1
-                        blue_wins_bc_flag += 1
-                        rounds_counter_win_agent_1.append(game_.move_count)
+                        blue_wins.add_win('flag', game_.move_count)
                     elif game_reward == -2:  # blue won by moves
                         game_times_1.append(timer() - game_time_s)
-                        blue_won += 1
-                        blue_wins_bc_no_moves_left += 1
-                        rounds_counter_win_agent_1.append(game_.move_count)
+                        blue_wins.add_win('moves', game_.move_count)
+                    elif game_reward == 0:
+                        blue_wins.add_draw(game_.move_count)
+                        red_wins.add_draw(game_.move_count)
                     else:
                         raise ValueError(f'Game reward {game_reward} unknown.')
-                    rounds_counter_per_game.append(game_.move_count)
                     break
 
             if simu % 10 == 0:
                 print_round_results(simu, num_sims, ag_type_0, ag_type_1,
-                                    red_won, blue_won)
+                                    red_wins.wins, blue_wins.wins)
         if save_results:
             write_results(num_sims, ag_type_0, ag_type_1,
-                          red_won, red_wins_bc_flag, red_wins_bc_no_moves_left,
-                          blue_won, blue_wins_bc_flag, blue_wins_bc_no_moves_left,
+                          red_wins, blue_wins,
                           game_times_0, game_times_1,
                           rounds_counter_per_game, rounds_counter_win_agent_0, rounds_counter_win_agent_1)
-
-        return red_won, blue_won
+        print('')
+        return red_wins.wins, blue_wins.wins, red_wins.draws
 
 
 def print_round_results(i, n, ag_0, ag_1, red_won, blue_won):
@@ -128,29 +138,47 @@ def print_round_results(i, n, ag_0, ag_1, red_won, blue_won):
     ag_1_res = f'Agent 1 ({blue}{ag_1}{rs})'.center(30)
     red_won = str(red_won).rjust(4)
     blue_won = str(blue_won).ljust(4)
-    print(f'\r{f"Game {i}/{n}".center(10)} {ag_0_res} --> {red_won} : {blue_won} <-- {ag_1_res}', end='')
+    print(f'\r{f"Game {i}/{n}".center(10)} {ag_0_res} --> {red_won} : {blue_won} <-- {ag_1_res}'
+          f'\t Draws: {i-red_won-blue_won}', end='')
 
 
-def write_results(num_sims, ag_type_0, ag_type_1, red_won, red_wins_bc_flag, red_wins_bc_no_moves_left, blue_won,
-                  blue_wins_bc_flag, blue_wins_bc_no_moves_left, game_times_0, game_times_1, rounds_counter_per_game,
-                  rounds_counter_win_agent_0, rounds_counter_win_agent_1):
+def write_results(num_sims, ag_type_0, ag_type_1,
+                  red_win_container, blue_win_container,
+                  game_times_0, game_times_1):
+
+    red_won = red_win_container.wins
+    blue_won = blue_win_container.wins
+
+    red_win_flags = red_win_container.win_reasons['flag']
+    red_win_moves = red_win_container.win_reasons['moves']
+    blue_win_flags = blue_win_container.win_reasons['flag']
+    blue_win_moves = blue_win_container.win_reasons['moves']
+
+    _, red_sum_count = red_win_container.get_count_stats()
+    _, blue_sum_count = blue_win_container.get_count_stats()
+
+
+
+
     file = open("{}_vs_{}_with_{}_sims.txt".format(ag_type_0, ag_type_1, num_sims), "w")
     file.write("Statistics of {} vs. {} with {} games played.\n".format(ag_type_0, ag_type_1, num_sims))
     file.write("Overall computational time of simulation: {} seconds.\n".format(sum(game_times_0) + sum(game_times_1)))
 
     file.write(
         "\nAgent {} won {}/{} games (~{}%).\n".format(ag_type_0, red_won, num_sims, round(100 * red_won / num_sims, 2)))
-    file.write("Reasons for winning: {} flag captures, {} wins through killing all enemies\n".format(red_wins_bc_flag,
-                                                                                                     red_wins_bc_no_moves_left))
+    file.write("Reasons for winning: {} flag captures, {} wins through killing all enemies\n".format(red_win_flags,
+                                                                                                     red_win_moves))
 
     file.write("\nAgent {} won {}/{} games (~{}%).\n".format(ag_type_1, blue_won, num_sims,
                                                              round(100 * blue_won / num_sims, 2)))
-    file.write("Reasons for winning: {} flag captures, {} wins through killing all enemies\n".format(blue_wins_bc_flag,
-                                                                                                     blue_wins_bc_no_moves_left))
+    file.write("Reasons for winning: {} flag captures, {} wins through killing all enemies\n".format(blue_win_flags,
+                                                                                                     blue_win_moves))
 
-    file.write("\nAverage game duration overall: {} rounds\n".format(round(sum(rounds_counter_per_game) / num_sims), 2))
-    file.write("Maximum number of rounds played: {} rounds\n".format(max(rounds_counter_per_game)))
-    file.write("Minimum number of rounds played: {} rounds\n".format(min(rounds_counter_per_game)))
+    file.write("\nAverage game duration overall: {} rounds\n".format(round((red_sum_count + blue_sum_count) / num_sims, 2)))
+    file.write("Maximum number of rounds played: {} rounds\n".format(
+        max(blue_win_container.rounds_count + red_win_container.rounds_count)))
+    file.write("Minimum number of rounds played: {} rounds\n".format(
+        min(blue_win_container.rounds_count + red_win_container.rounds_count)))
 
     file.write("\nAverage game duration for {} wins: {} rounds\n".format(ag_type_0, round(
         sum(rounds_counter_win_agent_0) / len(rounds_counter_win_agent_0)), 2))

@@ -14,9 +14,10 @@ import os
 import shutil
 import time
 import random
-import numpy as np
 import math
 import sys
+from game import GameState
+from collections import defaultdict
 
 import argparse
 import torch
@@ -101,7 +102,7 @@ class Agent:
             updated_piece[1].change_position(updated_piece[0])
         board[updated_piece[0]] = updated_piece[1]
 
-    def decide_move(self):
+    def decide_move(self, *args, **kwargs):
         """
         Implementation of the agent's move for the current round
         :return: tuple of "from" position tuple to "to" position tuple representing the move
@@ -322,15 +323,12 @@ class Reinforce(Agent, abc.ABC):
 
         conditions = self.state_represent()
         state_dim = len(conditions)
-        board_state = np.zeros((state_dim, self.board.shape[0], self.board.shape[1]))  # zeros for empty field
+        board_state = np.zeros((1, state_dim, self.board.shape[0], self.board.shape[1]))  # zeros for empty field
         for pos, val in np.ndenumerate(board):
             p = board[pos]
-            # for reinforce as team 1, reverse board to have same state representation
-            # if self.team == 1:
-            #     pos = (self.board.shape[0]-1 - pos[0], self.board.shape[0]-1 - pos[1])
             if p is not None:  # piece on this field
                 for i, (team, type_, vers) in enumerate(conditions):
-                    board_state[(i,) + pos] = self.check(p, team, type_, vers)  # represent type
+                    board_state[(0, i) + pos] = self.check(p, team, type_, vers)  # represent type
         board_state = torch.Tensor(board_state).to(self.device)
         # add dim for batches
         board_state = board_state.view(1, state_dim, self.board.shape[0], self.board.shape[0])
@@ -408,6 +406,9 @@ class Reinforce(Agent, abc.ABC):
 class AlphaZero(Reinforce):
     def __init__(self, team, game_dim=5):
         super(AlphaZero, self).__init__(team=team)
+        self.canonical_teams = True
+        self.invert_moves = bool(team)
+        self.low_train = False
         self.action_dim = 64  # all pieces 3 * 16 (for pieces: 2, 2, 2) + 4 * 4 for (for pieces 1, 3, 3, 10)
         self.state_dim = len(self.state_represent())
 
@@ -440,24 +441,102 @@ class AlphaZero(Reinforce):
         # self.model = models.Linear(self.state_dim, self.action_dim)
         # self.model.load_state_dict(torch.load('./saved_models/stratego_best.pkl'))
 
+    def decide_move(self, *args, **kwargs):
+        self.force_canonical(self.team)
+        pred, _ = self.model.predict(self.board_to_state(self.board))
+
+        if self.low_train:
+            actions, relation_dict = utils.action_rep.actions, utils.action_rep.act_piece_relation
+            actions_mask = utils.get_actions_mask(self.board, 0,
+                                                  relation_dict,
+                                                  actions)
+            pred = actions_mask * pred
+
+        act = np.argmax(pred)
+        move = self.action_to_move(act, 0)
+
+        self.force_canonical(0)
+        move = self.invert_move(move)
+
+        return move
+
+    def action_to_move(self, action_id, team, **kwargs):
+        """
+        Converting an action (integer between 0 and action_dim) to a move on the board,
+        according to the action representation specified in self.piece_action
+        :param action: action integer e.g. 3
+        :return: move e.g. ((0, 0), (0, 1))
+        """
+        if action_id is None:
+            return None
+        actions = utils.action_rep.actions
+        actors = utils.action_rep.actors
+        action = actions[action_id]
+
+        piece_desc = actors[action_id]
+        piece = self.relate_actor_desc(piece_desc, team)
+        piece_pos = piece.position  # where is the piece
+
+        pos_to = (piece_pos[0] + action[0], piece_pos[1] + action[1])
+        move = (piece_pos, pos_to)
+        return move
+
+    def relate_actor_desc(self, desc, team):
+        type_, version = list(map(int, desc.split('_')))
+        for piece in self.board.flatten():
+            if piece is not None and piece.type == type_ and piece.version == version and piece.team == team:
+                wanted_piece = piece
+                break
+
+        return wanted_piece
+
+    def invert_move(self, move):
+        if self.invert_moves:
+            from_, to_ = move
+            game_dim = self.board.shape[0]
+            return ((game_dim - 1 - from_[0], game_dim - 1 - from_[1]),
+                    (game_dim - 1 - to_[0], game_dim - 1 - to_[1]))
+        return move
+
+    def force_canonical(self, player):
+        """
+        Make the given player be team 0.
+        :param player: int, the team to convert to
+        """
+        if player == 0 and self.canonical_teams:
+            # player 0 is still team 0
+            return
+        elif player == 1 and not self.canonical_teams:
+            # player 1 has already been made 0 previously
+            return
+        else:
+            # flip team 0 and 1 and note down the change in teams
+            self.canonical_teams = not self.canonical_teams
+            self.board = np.flip(self.board)
+            for pos, piece in np.ndenumerate(self.board):
+                # flip all team attributes
+                if piece is not None and piece.team != 99:
+                    piece.team ^= 1
+                    piece.position = pos
+
     def state_represent(self):
         conditions = []
 
         # own team
         # flag, 1 , 10, bombs
-        conditions += [(self.team, t, v) for (t, v) in zip([0, 1, 10, 11], [1]*4)]
+        conditions += [(0, t, v) for (t, v) in zip([0, 1, 10, 11], [1]*4)]
         # 2's, 3 versions
-        conditions += [(self.team, t, v) for (t, v) in zip([2]*3, [1, 2, 3])]
+        conditions += [(0, t, v) for (t, v) in zip([2]*3, [1, 2, 3])]
         # 3's, 2 versions
-        conditions += [(self.team, t, v) for (t, v) in zip([3]*2, [1, 2])]
+        conditions += [(0, t, v) for (t, v) in zip([3]*2, [1, 2])]
 
         # opponent team
         # flag, 1 , 10, bombs
-        conditions += [(self.other_team, t, v) for (t, v) in zip([0, 1, 10, 11], [1]*4)]
+        conditions += [(1, t, v) for (t, v) in zip([0, 1, 10, 11], [1]*4)]
         # 2's, 3 versions
-        conditions += [(self.other_team, t, v) for (t, v) in zip([2]*3, [1, 2, 3])]
+        conditions += [(1, t, v) for (t, v) in zip([2]*3, [1, 2, 3])]
         # 3's, 2 versions
-        conditions += [(self.other_team, t, v) for (t, v) in zip([3]*2, [1, 2])]
+        conditions += [(1, t, v) for (t, v) in zip([3]*2, [1, 2])]
 
         # obstacle
         conditions += [(99, 99, 1)]
