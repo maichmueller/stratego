@@ -93,7 +93,7 @@ class NNetWrapper:
         # start = time.time()
 
         # preparing
-        board = torch.Tensor(board).to('cpu')
+        board = torch.Tensor(board)
         # board = board.view(1, self.board_x, self.board_y)
         self.nnet.eval()
         with torch.no_grad():
