@@ -20,16 +20,18 @@ from tqdm.auto import tqdm
 
 
 class Coach:
-    def __init__(self, student, num_iters=100, **kwargs):
+    def __init__(self, student, num_iterations=100, num_episodes=100,
+                 num_iters_trainexample_history=10, win_frac=0.55,
+                 mcts_simulations=1000, exploration_rate=10, **kwargs):
         # super().__init__(*args, **kwargs)
 
-        self.num_iters = num_iters
-        self.win_frac = 0.55
-        self.num_episodes = 100
-        self.mcts_sims = 1000
-        self.num_iters_trainex_hist = 7
+        self.num_iters = num_iterations
+        self.win_frac = win_frac
+        self.num_episodes = num_episodes
+        self.mcts_sims = mcts_simulations
+        self.num_iters_trainex_hist = num_iters_trainexample_history
         self.model_folder = './saved_models/'
-        self.temp_thresh = 10
+        self.temp_thresh = exploration_rate
 
         self.score = 0
         self.reward = 0
@@ -69,8 +71,8 @@ class Coach:
         state = self.game.state
         ep_step = 0
 
-        def invert_move(move):
-            from_, to_ = move
+        def invert_move(m):
+            from_, to_ = m
             return ((self.game.game_dim-1 - from_[0], self.game.game_dim-1 - from_[1]),
                     (self.game.game_dim-1 - to_[0], self.game.game_dim-1 - to_[1]))
 
@@ -120,7 +122,7 @@ class Coach:
             if not self.skip_first_self_play or i > 1:
                 iter_train_expls = deque([])
 
-                for eps in tqdm(range(self.num_episodes)):
+                for _ in tqdm(range(self.num_episodes)):
                     self.mcts = MCTS(self.game, self.nnet)  # reset search tree
                     iter_train_expls += self.exec_ep()
                     self.game.reset()
@@ -146,12 +148,12 @@ class Coach:
             # training new network, keeping a copy of the old one
             self.nnet.save_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
             self.opp_net.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
-            pmcts = MCTS(self.game, self.opp_net)
+            # pmcts = MCTS(self.game, self.opp_net)
 
             self.nnet.train(train_examples, 100)
-            nmcts = MCTS(self.game, self.nnet)
+            # nmcts = MCTS(self.game, self.nnet)
 
-            print('PITTING AGAINST PREVIOUS VERSION')
+            print('\nPITTING AGAINST PREVIOUS VERSION')
             test_ag_0 = agent.AlphaZero(0)
             test_ag_0.low_train = True
             test_ag_0.model.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
@@ -163,12 +165,12 @@ class Coach:
             arena = Arena(test_ag_0, test_ag_1, self.game.board_size)
             ag_0_wins, ag_1_wins, draws = arena.pit(num_sims=self.num_iters)
 
-            print('NEW/PREV WINS : %d / %d ; DRAWS : %d' % (ag_0_wins, ag_1_wins, draws))
+            print('Win rate of new model: %d / %d | draws: %d' % (ag_0_wins, ag_1_wins, draws))
             if ag_0_wins + ag_1_wins > 0 and float(ag_0_wins) / (ag_0_wins + ag_1_wins) < self.win_frac:
-                print('REJECTING NEW MODEL')
+                print('REJECTING NEW MODEL\n')
                 self.nnet.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
             else:
-                print('ACCEPTING NEW MODEL')
+                print('ACCEPTING NEW MODEL\n')
                 self.nnet.save_checkpoint(folder=self.model_folder, filename=f'checkpoint_{i}.pth.tar')
                 self.nnet.save_checkpoint(folder=self.model_folder, filename='best.pth.tar')
 
@@ -199,5 +201,8 @@ class Coach:
 
 
 if __name__ == '__main__':
-    coach = Coach(agent.AlphaZero(0), board_size='small')
+    coach = Coach(agent.AlphaZero(0),
+                  num_episodes=1,
+                  num_iterations=10,
+                  board_size='small')
     coach.learn()

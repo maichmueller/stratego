@@ -136,10 +136,11 @@ def print_round_results(i, n, ag_0, ag_1, red_won, blue_won):
     rs = Style.RESET_ALL
     ag_0_res = f'Agent 0 ({red}{ag_0}{rs})'.center(30)
     ag_1_res = f'Agent 1 ({blue}{ag_1}{rs})'.center(30)
+    draws = i - red_won - blue_won
     red_won = str(red_won).rjust(4)
     blue_won = str(blue_won).ljust(4)
     print(f'\r{f"Game {i}/{n}".center(10)} {ag_0_res} --> {red_won} : {blue_won} <-- {ag_1_res}'
-          f'\t Draws: {i-red_won-blue_won}', end='')
+          f'\t Draws: {draws}', end='')
 
 
 def write_results(num_sims, ag_type_0, ag_type_1,
