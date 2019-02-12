@@ -216,8 +216,7 @@ class Coach:
 
 
 if __name__ == '__main__':
-    coach = Coach(agent.AlphaZero(0),
-                  num_episodes=20,
-                  num_iterations=100,
-                  board_size='small')
-    coach.teach()
+    c = Coach(agent.AlphaZero(0),
+                    num_episodes=20,
+                    board_size='small')
+    c.teach(from_prev_examples=True)

@@ -41,7 +41,9 @@ class NNetWrapper:
                 try:
                     boards, pis, vs = list(zip(*[examples[i] for i in sample_ids]))
                 except Exception as e:
-                    print(*examples, sep='\n')
+                    import re
+                    error_pos = int(re.search('(?<=#)\d+\s', 'zip argument #7 not').group())
+                    print(*examples[error_pos], sep='\n')
                     raise e
                 boards = torch.Tensor(np.array(boards).astype(np.float64))
                 target_pis = torch.Tensor(np.array(pis))
