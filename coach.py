@@ -124,7 +124,7 @@ class Coach:
                 else:
                     break
 
-            self.nnet.load_checkpoint('best.pth.tar')
+            self.nnet.load_checkpoint(self.model_folder, 'best.pth.tar')
 
         for i in range(1, self.num_iters + 1):
             # bookkeeping
