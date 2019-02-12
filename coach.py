@@ -106,7 +106,7 @@ class Coach:
             if r != 404:
                 return state.board, pi, r
 
-    def teach(self, learn_from_prev_expls=False):
+    def teach(self, from_prev_examples=False):
         """
         Performs num_iters iterations with num_episodes episodes of self-play in each
         iteration. After every iteration, it retrains the neural network with
@@ -114,12 +114,13 @@ class Coach:
         It then pits the new neural network against the old one and accepts it
         only if it wins >= updateThreshold fraction of games.
         """
-        if learn_from_prev_expls:
+        if from_prev_examples:
             i = 1
             while True:
                 if os.path.isfile(self.model_folder + f'checkpoint_{i}.pth.tar' + ".examples"):
                     checkpoint = f'checkpoint_{i}.pth.tar'
                     self.load_train_examples(checkpoint)
+                    i += 1
                 else:
                     break
 
