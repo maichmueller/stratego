@@ -43,7 +43,10 @@ class NNetWrapper:
                 except Exception as e:
                     import re
                     error_pos = int(re.search('(?<=#)\d+\s', 'zip argument #7 not').group())
-                    boards, pis, vs = examples[error_pos]
+                    elements = examples[error_pos]
+                    print(type(elements))
+                    print(iter(elements) == elements)
+                    print(*elements)
                     print('BOARD', boards)
                     print('PIS', pis)
                     print('VS', vs)
