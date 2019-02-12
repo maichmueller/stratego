@@ -44,9 +44,9 @@ class NNetWrapper:
                     import re
                     error_pos = int(re.search('(?<=#)\d+\s', 'zip argument #7 not').group())
                     elements = examples[error_pos]
+                    print(elements)
                     print(type(elements))
                     print(iter(elements) == elements)
-                    print(*elements)
                     print('BOARD', boards)
                     print('PIS', pis)
                     print('VS', vs)
