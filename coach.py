@@ -21,7 +21,7 @@ from tqdm.auto import tqdm
 
 class Coach:
     def __init__(self, student, num_iterations=100, num_episodes=100,
-                 num_iters_trainexample_history=10, win_frac=0.55,
+                 num_iters_trainexample_history=10000, win_frac=0.55,
                  mcts_simulations=1000, exploration_rate=10, **kwargs):
         # super().__init__(*args, **kwargs)
 
@@ -30,7 +30,7 @@ class Coach:
         self.num_episodes = num_episodes
         self.mcts_sims = mcts_simulations
         self.num_iters_trainex_hist = num_iters_trainexample_history
-        self.model_folder = './saved_models/'
+        self.model_folder = './checkpoints/'
         self.temp_thresh = exploration_rate
 
         self.score = 0
@@ -106,7 +106,7 @@ class Coach:
             if r != 404:
                 return state.board, pi, r
 
-    def learn(self):
+    def teach(self, learn_from_prev_expls=False):
         """
         Performs num_iters iterations with num_episodes episodes of self-play in each
         iteration. After every iteration, it retrains the neural network with
@@ -114,32 +114,46 @@ class Coach:
         It then pits the new neural network against the old one and accepts it
         only if it wins >= updateThreshold fraction of games.
         """
+        if learn_from_prev_expls:
+            i = 1
+            while True:
+                if os.path.isfile(self.model_folder + f'checkpoint_{i}.pth.tar' + ".examples"):
+                    checkpoint = f'checkpoint_{i}.pth.tar'
+                    self.load_train_examples(checkpoint)
+                else:
+                    break
+
+            self.nnet.load_checkpoint('best.pth.tar')
 
         for i in range(1, self.num_iters + 1):
             # bookkeeping
+
             print('------ITER ' + str(i) + '------')
+
             # examples of the iteration
             if not self.skip_first_self_play or i > 1:
-                iter_train_expls = deque([])
+                iter_train_expls = []
 
                 for _ in tqdm(range(self.num_episodes)):
-                    self.mcts = MCTS(self.game, self.nnet)  # reset search tree
+                    # bookkeeping + plot progress through tqdm
+                    # reset search tree
+                    self.mcts = MCTS(self.game, self.nnet, num_mcts_sims=self.mcts_sims)
                     iter_train_expls += self.exec_ep()
                     self.game.reset()
-                    # bookkeeping + plot progress
 
                 # save the iteration examples to the history
                 self.train_expls_hist.append(iter_train_expls)
 
-            if len(self.train_expls_hist) > self.num_iters_trainex_hist:
+            diff_hist_len = len(self.train_expls_hist) - self.num_iters_trainex_hist
+            if diff_hist_len > 0:
                 print("len(train_examples_history) =", len(self.train_expls_hist),
-                      " => remove the oldest train_examples")
-                self.train_expls_hist.pop(0)
+                      f" => remove the oldest {diff_hist_len} train_examples")
+                self.train_expls_hist = self.train_expls_hist[diff_hist_len:]
             # backup history to a file
             # NB! the examples were collected using the model from the previous iteration, so (i-1)
             self.save_train_examples(i - 1)
 
-            # shuffle examlpes before training
+            # shuffle examples before training
             train_examples = []
             for e in self.train_expls_hist:
                 train_examples.extend(e)
@@ -194,7 +208,7 @@ class Coach:
         else:
             print("File with train_examples found. Reading it.")
             with open(examples_file, "rb") as f:
-                self.train_expls_hist = Unpickler(f).load()
+                self.train_expls_hist += Unpickler(f).load()
             f.close()
             # examples based on the model were already collected (loaded)
             self.skip_first_self_play = True
@@ -202,7 +216,7 @@ class Coach:
 
 if __name__ == '__main__':
     coach = Coach(agent.AlphaZero(0),
-                  num_episodes=1,
-                  num_iterations=10,
+                  num_episodes=20,
+                  num_iterations=100,
                   board_size='small')
-    coach.learn()
+    coach.teach()

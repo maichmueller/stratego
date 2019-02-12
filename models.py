@@ -38,7 +38,11 @@ class NNetWrapper:
 
             while batch_idx < int(len(examples) / batch_size):
                 sample_ids = np.random.randint(len(examples), size=batch_size)
-                boards, pis, vs = list(zip(*[examples[i] for i in sample_ids]))
+                try:
+                    boards, pis, vs = list(zip(*[examples[i] for i in sample_ids]))
+                except Exception as e:
+                    print(*examples, sep='\n')
+                    raise e
                 boards = torch.Tensor(np.array(boards).astype(np.float64))
                 target_pis = torch.Tensor(np.array(pis))
                 target_vs = torch.Tensor(np.array(vs).astype(np.float64))
@@ -111,8 +115,6 @@ class NNetWrapper:
         if not os.path.exists(folder):
             print("Checkpoint Directory does not exist! Making directory {}".format(folder))
             os.mkdir(folder)
-        else:
-            print("Checkpoint Directory exists! ")
         torch.save({
             'state_dict': self.nnet.state_dict(),
         }, filepath)
