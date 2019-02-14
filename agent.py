@@ -29,7 +29,6 @@ from collections import Counter
 import abc
 
 
-
 class Agent:
     """
     Agent decides which action to take
@@ -404,11 +403,11 @@ class Reinforce(Agent, abc.ABC):
 
 
 class AlphaZero(Reinforce):
-    def __init__(self, team, game_dim=5):
+    def __init__(self, team, game_dim=5, low_train=False):
         super(AlphaZero, self).__init__(team=team)
         self.canonical_teams = True
         self.invert_moves = bool(team)
-        self.low_train = False
+        self.low_train = low_train
         self.action_dim = 64  # all pieces 3 * 16 (for pieces: 2, 2, 2) + 4 * 4 for (for pieces 1, 3, 3, 10)
         self.state_dim = len(self.state_represent())
 
@@ -451,6 +450,10 @@ class AlphaZero(Reinforce):
                                                   relation_dict,
                                                   actions)
             pred = actions_mask * pred
+
+        if actions_mask.sum() == 0:
+            # no more legal moves -> lost
+            return None
 
         act = np.argmax(pred)
         move = self.action_to_move(act, 0)

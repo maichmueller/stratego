@@ -7,6 +7,7 @@ import time
 import os
 from cythonized.utils import AverageMeter
 from progressBar.progress.bar import Bar
+from tqdm import tqdm
 
 
 class NNetWrapper:
@@ -23,9 +24,10 @@ class NNetWrapper:
         examples: list of examples, each example is of form (board, pi, v)
         """
         optimizer = optim.Adam(self.nnet.parameters())
-
+        pbar = tqdm(range(epochs))
+        pbar.set_description('Training epoch')
         for epoch in range(epochs):
-            print('\rEPOCH ::: ' + str(epoch+1), end='')
+            # print('\rEPOCH ::: ' + str(epoch+1), end='')
             self.nnet.train()
             data_time = AverageMeter()
             batch_time = AverageMeter()
@@ -42,7 +44,7 @@ class NNetWrapper:
                     boards, pis, vs = list(zip(*[examples[i] for i in sample_ids]))
                 except Exception as e:
                     import re
-                    error_pos = int(re.search('(?<=#)\d+\s', 'zip argument #7 not').group())
+                    error_pos = int(re.search('(?<=#)\d+\s', str(e)).group())
                     elements = examples[error_pos]
                     print(elements)
                     print(type(elements))
@@ -51,7 +53,7 @@ class NNetWrapper:
                     print('PIS', pis)
                     print('VS', vs)
                     raise e
-                boards = torch.Tensor(np.array(boards).astype(np.float64))
+                boards = torch.cat(boards)
                 target_pis = torch.Tensor(np.array(pis))
                 target_vs = torch.Tensor(np.array(vs).astype(np.float64))
 
@@ -131,7 +133,7 @@ class NNetWrapper:
         # https://github.com/pytorch/examples/blob/master/imagenet/main.py#L98
         filepath = os.path.join(folder, filename)
         if not os.path.exists(filepath):
-            raise("No model in path {}".format(filepath))
+            raise ValueError("No model in path {}".format(filepath))
         map_location = None if self.device != 'cpu' else 'cpu'
         checkpoint = torch.load(filepath, map_location=map_location)
         self.nnet.load_state_dict(checkpoint['state_dict'])

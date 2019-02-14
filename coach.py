@@ -9,7 +9,7 @@ from cythonized.mcts import MCTS, utils
 from cythonized.utils import AverageMeter
 from progressBar.progress.bar import Bar
 import time
-from collections import deque
+from collections import deque, namedtuple
 import os
 import sys
 from pickle import Pickler, Unpickler
@@ -19,10 +19,13 @@ import models
 from tqdm.auto import tqdm
 
 
+Episode = namedtuple('Episode', 'board pi v')
+
+
 class Coach:
     def __init__(self, student, num_iterations=100, num_episodes=100,
                  num_iters_trainexample_history=10000, win_frac=0.55,
-                 mcts_simulations=1000, exploration_rate=10, **kwargs):
+                 mcts_simulations=100, exploration_rate=10, **kwargs):
         # super().__init__(*args, **kwargs)
 
         self.num_iters = num_iterations
@@ -68,7 +71,8 @@ class Coach:
                            pi is the MCTS informed policy vector, v is +1 if
                            the player eventually won the game, else -1.
         """
-        state = self.game.state
+        self.game.reset()
+        state = deepcopy(self.game.state)
         ep_step = 0
 
         def invert_move(m):
@@ -81,13 +85,12 @@ class Coach:
             # utils.print_board(self.game.state.board)
             expl_rate = int(ep_step < self.temp_thresh)
 
-            turn = self.game.move_count % 2
+            turn = state.move_count % 2
 
             pi = self.mcts.get_action_prob(state, player=turn, expl_rate=expl_rate)
             if isinstance(pi, int):
                 state.force_canonical(0)
-                state.terminal_checked = False
-                r = state.is_terminal()
+                r = state.is_terminal(force=True)
                 pi = None
                 return state.board, pi, r
 
@@ -99,10 +102,10 @@ class Coach:
             if turn == 1:
                 move = invert_move(move)
 
-            r = self.game.run_step(move=move)
-            if r == 0:
-                r = self.reward_draw
-
+            state.do_move(move=move)
+            r = state.is_terminal(force=True)
+            # utils.print_board(state.board)
+            # print(r)
             if r != 404:
                 return state.board, pi, r
 
@@ -115,7 +118,7 @@ class Coach:
         only if it wins >= updateThreshold fraction of games.
         """
         if from_prev_examples:
-            i = 1
+            i = 0
             while True:
                 if os.path.isfile(self.model_folder + f'checkpoint_{i}.pth.tar' + ".examples"):
                     checkpoint = f'checkpoint_{i}.pth.tar'
@@ -123,13 +126,13 @@ class Coach:
                     i += 1
                 else:
                     break
-
-            self.nnet.load_checkpoint(self.model_folder, 'best.pth.tar')
+            if os.path.isfile(self.model_folder + f'checkpoint_{i}.pth.tar'):
+                self.nnet.load_checkpoint(self.model_folder, f'checkpoint_{i}.pth.tar')
 
         for i in range(1, self.num_iters + 1):
             # bookkeeping
 
-            print('------ITER ' + str(i) + '------')
+            print('\n------ITER ' + str(i) + '------')
 
             # examples of the iteration
             if not self.skip_first_self_play or i > 1:
@@ -139,11 +142,12 @@ class Coach:
                     # bookkeeping + plot progress through tqdm
                     # reset search tree
                     self.mcts = MCTS(self.game, self.nnet, num_mcts_sims=self.mcts_sims)
-                    iter_train_expls += self.exec_ep()
+                    ep = Episode(*self.exec_ep())
+                    iter_train_expls.append(ep)
                     self.game.reset()
 
                 # save the iteration examples to the history
-                self.train_expls_hist.append(iter_train_expls)
+                self.train_expls_hist += iter_train_expls
 
             diff_hist_len = len(self.train_expls_hist) - self.num_iters_trainex_hist
             if diff_hist_len > 0:
@@ -156,8 +160,9 @@ class Coach:
 
             # shuffle examples before training
             train_examples = []
-            for e in self.train_expls_hist:
-                train_examples.extend(e)
+            for epi in self.train_expls_hist:
+                train_examples += [Episode(self.game.agents[0].board_to_state(epi.board),
+                                         epi.pi, epi.v)]
             shuffle(train_examples)
 
             # training new network, keeping a copy of the old one
@@ -169,18 +174,18 @@ class Coach:
             # nmcts = MCTS(self.game, self.nnet)
 
             print('\nPITTING AGAINST PREVIOUS VERSION')
-            test_ag_0 = agent.AlphaZero(0)
-            test_ag_0.low_train = True
+            test_ag_0 = agent.AlphaZero(0, low_train=True)
             test_ag_0.model.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
             # test_ag_0.decide_move = lambda x: np.argmax(nmcts.get_action_prob(x, expl_rate=0))
-            test_ag_1 = agent.AlphaZero(1)
-            test_ag_1.low_train = True
+            test_ag_1 = agent.AlphaZero(1, low_train=True)
             test_ag_1.model.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
             # test_ag_1.decide_move = lambda x: np.argmax(pmcts.get_action_prob(x, expl_rate=0))
-            arena = Arena(test_ag_0, test_ag_1, self.game.board_size)
+            arena = Arena(test_ag_0, test_ag_1, board_size=self.game.board_size)
             ag_0_wins, ag_1_wins, draws = arena.pit(num_sims=self.num_iters)
 
-            print('Win rate of new model: %d / %d | draws: %d' % (ag_0_wins, ag_1_wins, draws))
+            print('Wins / losses of new model: %d / %d (%d) | draws: %d' % (
+                ag_0_wins, ag_1_wins, round(ag_0_wins / (ag_1_wins + ag_0_wins), 2), draws)
+                  )
             if ag_0_wins + ag_1_wins > 0 and float(ag_0_wins) / (ag_0_wins + ag_1_wins) < self.win_frac:
                 print('REJECTING NEW MODEL\n')
                 self.nnet.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
@@ -217,6 +222,7 @@ class Coach:
 
 if __name__ == '__main__':
     c = Coach(agent.AlphaZero(0),
-                    num_episodes=20,
-                    board_size='small')
+              num_episodes=20,
+              mcts_simulations=100,
+              board_size='small')
     c.teach(from_prev_examples=True)

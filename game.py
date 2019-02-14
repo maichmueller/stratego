@@ -367,8 +367,8 @@ class GameState:
             self.dead_pieces[piece_att.team][piece_att.type] += 1
         return outcome
 
-    def is_terminal(self, **kwargs):
-        if not self.terminal_checked:
+    def is_terminal(self, force=False, **kwargs):
+        if force or not self.terminal_checked:
             self.check_terminal(**kwargs)
         return self.terminal
 
