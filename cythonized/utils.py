@@ -251,7 +251,7 @@ def print_board(board, same_figure=True, block=False):
             plt.annotate(str(piece), xy=(pos[1], pos[0]), color='w', size=20, ha="center", va="center")
     # invert y makes numbering more natural; puts agent 1 on bottom, 0 on top !
     plt.gca().invert_yaxis()
-    plt.pause(1)
+    plt.pause(.5)
     plt.show(block=block)
 
 

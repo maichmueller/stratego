@@ -115,21 +115,27 @@ class Game:
         turn = self.move_count % 2  # player 1 or player 0
 
         if move is None:
-            new_move = self.agents[turn].decide_move(**kwargs)
-        else:
-            new_move = move
+            move = self.agents[turn].decide_move(**kwargs)
 
         # test if agent can't move anymore
-        if new_move is None:
+        if move is None:
             if turn == 1:
                 return 2  # agent0 wins
             else:
                 return -2  # agent1 wins
 
+        if not utils.is_legal_move(self.state.board, move):
+            self.agents[turn].decide_move(**kwargs)
+
         # let agents update their boards
         for _agent in self.agents:
-            _agent.do_move(new_move, true_gameplay=True)
-        outcome = self.state.do_move(new_move)  # execute agent's choice
+            _agent.do_move(move, true_gameplay=True)
+
+        self.game_replay.add_move(move,
+                                  (self.state.board[move[0]], self.state.board[move[1]]),
+                                  turn,
+                                  self.move_count)
+        outcome = self.state.do_move(move)  # execute agent's choice
 
         if outcome is not None:
             self._update_fight_rewards(outcome, turn)
@@ -346,7 +352,6 @@ class GameState:
         else:
             self.update_board(to_, board[from_])
             self.update_board(from_, None)
-        # self.game_replay.add_move(move, (board[from_], board[to_]), self.move_count % 2, self.move_count)
 
         self.move_count += 1
         return fight_outcome

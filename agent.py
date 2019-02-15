@@ -452,6 +452,7 @@ class AlphaZero(Reinforce):
             pred = actions_mask * pred
 
         if actions_mask.sum() == 0:
+            self.force_canonical(0)
             # no more legal moves -> lost
             return None
 
@@ -485,7 +486,7 @@ class AlphaZero(Reinforce):
         return move
 
     def relate_actor_desc(self, desc, team):
-        type_, version = list(map(int, desc.split('_')))
+        type_, version = list(map(int, desc.split('_', 1)))
         for piece in self.board.flatten():
             if piece is not None and piece.type == type_ and piece.version == version and piece.team == team:
                 wanted_piece = piece

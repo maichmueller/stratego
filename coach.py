@@ -126,8 +126,8 @@ class Coach:
                     i += 1
                 else:
                     break
-            if os.path.isfile(self.model_folder + f'checkpoint_{i}.pth.tar'):
-                self.nnet.load_checkpoint(self.model_folder, f'checkpoint_{i}.pth.tar')
+            if os.path.isfile(self.model_folder + f'best.pth.tar'):
+                self.nnet.load_checkpoint(self.model_folder, f'best.pth.tar')
 
         for i in range(1, self.num_iters + 1):
             # bookkeeping
@@ -183,9 +183,8 @@ class Coach:
             arena = Arena(test_ag_0, test_ag_1, board_size=self.game.board_size)
             ag_0_wins, ag_1_wins, draws = arena.pit(num_sims=self.num_iters)
 
-            print('Wins / losses of new model: %d / %d (%d) | draws: %d' % (
-                ag_0_wins, ag_1_wins, round(ag_0_wins / (ag_1_wins + ag_0_wins), 2), draws)
-                  )
+            print(f'Wins / losses of new model: {ag_0_wins} / {ag_1_wins } '
+                  f'({round(ag_0_wins / (ag_1_wins + ag_0_wins), 3)}%) | draws: {draws}')
             if ag_0_wins + ag_1_wins > 0 and float(ag_0_wins) / (ag_0_wins + ag_1_wins) < self.win_frac:
                 print('REJECTING NEW MODEL\n')
                 self.nnet.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')

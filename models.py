@@ -26,7 +26,7 @@ class NNetWrapper:
         optimizer = optim.Adam(self.nnet.parameters())
         pbar = tqdm(range(epochs))
         pbar.set_description('Training epoch')
-        for epoch in range(epochs):
+        for epoch in pbar:
             # print('\rEPOCH ::: ' + str(epoch+1), end='')
             self.nnet.train()
             data_time = AverageMeter()
