@@ -18,14 +18,17 @@ from arena import Arena
 import models
 from tqdm.auto import tqdm
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from multiprocessing import cpu_count
 
-Episode = namedtuple('Episode', 'board pi v')
+
+TrainingTurn = namedtuple('TrainingTurn', 'board pi v player')
 
 
 class Coach:
     def __init__(self, student, num_iterations=100, num_episodes=100,
                  num_iters_trainexample_history=10000, win_frac=0.55,
-                 mcts_simulations=100, exploration_rate=10, **kwargs):
+                 mcts_simulations=100, exploration_rate=100, **kwargs):
         # super().__init__(*args, **kwargs)
 
         self.num_iters = num_iterations
@@ -53,11 +56,11 @@ class Coach:
         self.game = Game(agent0=student, agent1=deepcopy(student), **kwargs)
         self.nnet = student.model
         self.opp_net = self.game.agents[1].model  # the competitor network
-        self.mcts = MCTS(self.game, self.nnet)
+        # self.mcts = MCTS(self.game, self.nnet)
         self.train_expls_hist = []   # history of examples from num_iters_for_train_examples_history latest iterations
         self.skip_first_self_play = False  # can be overriden in load_train_examples()
 
-    def exec_ep(self):
+    def exec_ep(self, mcts, reset_game=True):
         """
         This function executes one episode of self-play, starting with player 1.
         As the game is played, each turn is added as a training example to
@@ -71,9 +74,13 @@ class Coach:
                            pi is the MCTS informed policy vector, v is +1 if
                            the player eventually won the game, else -1.
         """
-        self.game.reset()
+        if reset_game:
+            self.game.reset()
         state = deepcopy(self.game.state)
+        init_board = deepcopy(state.board)
         ep_step = 0
+
+        episode_examples = []
 
         def invert_move(m):
             from_, to_ = m
@@ -87,27 +94,32 @@ class Coach:
 
             turn = state.move_count % 2
 
-            pi = self.mcts.get_action_prob(state, player=turn, expl_rate=expl_rate)
+            pi = mcts.get_action_prob(state, player=turn, expl_rate=expl_rate)
             if isinstance(pi, int):
                 state.force_canonical(0)
                 r = state.is_terminal(force=True)
                 pi = None
-                return state.board, pi, r
+                return init_board, pi, r
+            else:
+                action = np.random.choice(len(pi), p=pi)
+                state.force_canonical(player=turn)
+                move = state.action_to_move(action, 0, force=True)
 
-            action = np.random.choice(len(pi), p=pi)
-            state.force_canonical(player=turn)
-            move = state.action_to_move(action, 0, force=True)
-            state.force_canonical(0)
+                episode_examples.append(TrainingTurn(self.game.agents[0].board_to_state(deepcopy(state.board)),
+                                                     pi, None, turn))
 
-            if turn == 1:
-                move = invert_move(move)
+                # state.force_canonical(0)
 
-            state.do_move(move=move)
-            r = state.is_terminal(force=True)
+                # if turn == 1:
+                #     move = invert_move(move)
+
+                state.do_move(move=move)
+                r = state.is_terminal(force=True, turn=0)
             # utils.print_board(state.board)
             # print(r)
             if r != 404:
-                return state.board, pi, r
+                return [TrainingTurn(board, pi, (-1)**(player != turn) * r, player)
+                        for (board, pi, _, player) in episode_examples]
 
     def teach(self, from_prev_examples=False):
         """
@@ -138,13 +150,27 @@ class Coach:
             if not self.skip_first_self_play or i > 1:
                 iter_train_expls = []
 
-                for _ in tqdm(range(self.num_episodes)):
-                    # bookkeeping + plot progress through tqdm
-                    # reset search tree
-                    self.mcts = MCTS(self.game, self.nnet, num_mcts_sims=self.mcts_sims)
-                    ep = Episode(*self.exec_ep())
-                    iter_train_expls.append(ep)
-                    self.game.reset()
+                # distances = []
+                # with ProcessPoolExecutor(max_workers=cpu_count()) as executor:
+                #     dist_pools = list((executor.submit(self.dijkstra, src=n_src) for n_src in nodes_source_cat))
+                #     for future in as_completed(dist_pools):
+                #         pbar.update(1)
+                #         distances.append(future.result())
+
+                with ProcessPoolExecutor(max_workers=cpu_count()) as executor:
+                    for _ in tqdm(range(self.num_episodes)):
+                        # bookkeeping + plot progress through tqdm
+                        # reset search tree
+                        mcts = MCTS(self.game, self.nnet, num_mcts_sims=self.mcts_sims)
+                        future = executor.submit(self.exec_ep, mcts=mcts, reset_game=True)
+                        iter_train_expls.append(future.result())
+
+                # for _ in tqdm(range(self.num_episodes)):
+                #     # bookkeeping + plot progress through tqdm
+                #     # reset search tree
+                #     self.mcts = MCTS(self.game, self.nnet, num_mcts_sims=self.mcts_sims)
+                #     iter_train_expls += self.exec_ep()
+                #     self.game.reset()
 
                 # save the iteration examples to the history
                 self.train_expls_hist += iter_train_expls
@@ -158,19 +184,14 @@ class Coach:
             # NB! the examples were collected using the model from the previous iteration, so (i-1)
             self.save_train_examples(i - 1)
 
-            # shuffle examples before training
-            train_examples = []
-            for epi in self.train_expls_hist:
-                train_examples += [Episode(self.game.agents[0].board_to_state(epi.board),
-                                         epi.pi, epi.v)]
-            shuffle(train_examples)
+            # print(self.train_expls_hist)
 
             # training new network, keeping a copy of the old one
             self.nnet.save_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
             self.opp_net.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
             # pmcts = MCTS(self.game, self.opp_net)
 
-            self.nnet.train(train_examples, 100)
+            self.nnet.train(self.train_expls_hist, 100)
             # nmcts = MCTS(self.game, self.nnet)
 
             print('\nPITTING AGAINST PREVIOUS VERSION')
@@ -184,7 +205,7 @@ class Coach:
             ag_0_wins, ag_1_wins, draws = arena.pit(num_sims=self.num_iters)
 
             print(f'Wins / losses of new model: {ag_0_wins} / {ag_1_wins } '
-                  f'({round(ag_0_wins / (ag_1_wins + ag_0_wins), 3)}%) | draws: {draws}')
+                  f'({100*round(ag_0_wins / (ag_1_wins + ag_0_wins), 3)}%) | draws: {draws}')
             if ag_0_wins + ag_1_wins > 0 and float(ag_0_wins) / (ag_0_wins + ag_1_wins) < self.win_frac:
                 print('REJECTING NEW MODEL\n')
                 self.nnet.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
@@ -221,7 +242,7 @@ class Coach:
 
 if __name__ == '__main__':
     c = Coach(agent.AlphaZero(0),
-              num_episodes=20,
+              num_episodes=5,
               mcts_simulations=100,
               board_size='small')
-    c.teach(from_prev_examples=True)
+    c.teach(from_prev_examples=False)

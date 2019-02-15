@@ -41,7 +41,7 @@ class NNetWrapper:
             while batch_idx < int(len(examples) / batch_size):
                 sample_ids = np.random.randint(len(examples), size=batch_size)
                 try:
-                    boards, pis, vs = list(zip(*[examples[i] for i in sample_ids]))
+                    boards, pis, vs, _ = list(zip(*[examples[i] for i in sample_ids]))
                 except Exception as e:
                     import re
                     error_pos = int(re.search('(?<=#)\d+\s', str(e)).group())

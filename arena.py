@@ -158,9 +158,6 @@ def write_results(num_sims, ag_type_0, ag_type_1,
     _, red_sum_count = red_win_container.get_count_stats()
     _, blue_sum_count = blue_win_container.get_count_stats()
 
-
-
-
     file = open("{}_vs_{}_with_{}_sims.txt".format(ag_type_0, ag_type_1, num_sims), "w")
     file.write("Statistics of {} vs. {} with {} games played.\n".format(ag_type_0, ag_type_1, num_sims))
     file.write("Overall computational time of simulation: {} seconds.\n".format(sum(game_times_0) + sum(game_times_1)))
