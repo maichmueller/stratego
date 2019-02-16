@@ -27,7 +27,7 @@ TrainingTurn = namedtuple('TrainingTurn', 'board pi v player')
 
 class Coach:
     def __init__(self, student, num_iterations=100, num_episodes=100,
-                 num_iters_trainexample_history=10000, win_frac=0.55,
+                 num_iters_trainexample_history=100000, win_frac=0.55,
                  mcts_simulations=100, exploration_rate=100, **kwargs):
         # super().__init__(*args, **kwargs)
 
@@ -77,7 +77,6 @@ class Coach:
         if reset_game:
             self.game.reset()
         state = deepcopy(self.game.state)
-        init_board = deepcopy(state.board)
         ep_step = 0
 
         episode_examples = []
@@ -96,10 +95,7 @@ class Coach:
 
             pi = mcts.get_action_prob(state, player=turn, expl_rate=expl_rate)
             if isinstance(pi, int):
-                state.force_canonical(0)
-                r = state.is_terminal(force=True)
-                pi = None
-                return init_board, pi, r
+                r = pi
             else:
                 action = np.random.choice(len(pi), p=pi)
                 state.force_canonical(player=turn)
@@ -131,15 +127,20 @@ class Coach:
         """
         if from_prev_examples:
             i = 0
+            checkpoint_found = False
             while True:
                 if os.path.isfile(self.model_folder + f'checkpoint_{i}.pth.tar' + ".examples"):
                     checkpoint = f'checkpoint_{i}.pth.tar'
-                    self.load_train_examples(checkpoint)
+                    checkpoint_found = True
                     i += 1
                 else:
                     break
-            if os.path.isfile(self.model_folder + f'best.pth.tar'):
-                self.nnet.load_checkpoint(self.model_folder, f'best.pth.tar')
+            if checkpoint_found:
+                self.load_train_examples(checkpoint)
+                if os.path.isfile(self.model_folder + f'best.pth.tar'):
+                    self.nnet.load_checkpoint(self.model_folder, f'best.pth.tar')
+
+        n_cpu = cpu_count()
 
         for i in range(1, self.num_iters + 1):
             # bookkeeping
@@ -157,13 +158,13 @@ class Coach:
                 #         pbar.update(1)
                 #         distances.append(future.result())
 
-                with ProcessPoolExecutor(max_workers=cpu_count()) as executor:
+                with ProcessPoolExecutor(max_workers=n_cpu) as executor:
                     for _ in tqdm(range(self.num_episodes)):
                         # bookkeeping + plot progress through tqdm
                         # reset search tree
                         mcts = MCTS(self.game, self.nnet, num_mcts_sims=self.mcts_sims)
                         future = executor.submit(self.exec_ep, mcts=mcts, reset_game=True)
-                        iter_train_expls.append(future.result())
+                        iter_train_expls.extend(future.result())
 
                 # for _ in tqdm(range(self.num_episodes)):
                 #     # bookkeeping + plot progress through tqdm
@@ -182,7 +183,8 @@ class Coach:
                 self.train_expls_hist = self.train_expls_hist[diff_hist_len:]
             # backup history to a file
             # NB! the examples were collected using the model from the previous iteration, so (i-1)
-            self.save_train_examples(i - 1)
+            if not self.skip_first_self_play or i > 0:
+                self.save_train_examples(i - 1)
 
             # print(self.train_expls_hist)
 
@@ -191,7 +193,7 @@ class Coach:
             self.opp_net.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
             # pmcts = MCTS(self.game, self.opp_net)
 
-            self.nnet.train(self.train_expls_hist, 100)
+            self.nnet.train(self.train_expls_hist, 100, batch_size=4096)
             # nmcts = MCTS(self.game, self.nnet)
 
             print('\nPITTING AGAINST PREVIOUS VERSION')
@@ -205,7 +207,7 @@ class Coach:
             ag_0_wins, ag_1_wins, draws = arena.pit(num_sims=self.num_iters)
 
             print(f'Wins / losses of new model: {ag_0_wins} / {ag_1_wins } '
-                  f'({100*round(ag_0_wins / (ag_1_wins + ag_0_wins), 3)}%) | draws: {draws}')
+                  f'({100 * ag_0_wins / (ag_1_wins + ag_0_wins):.1f}%) | draws: {draws}')
             if ag_0_wins + ag_1_wins > 0 and float(ag_0_wins) / (ag_0_wins + ag_1_wins) < self.win_frac:
                 print('REJECTING NEW MODEL\n')
                 self.nnet.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
@@ -242,7 +244,7 @@ class Coach:
 
 if __name__ == '__main__':
     c = Coach(agent.AlphaZero(0),
-              num_episodes=5,
+              num_episodes=200,
               mcts_simulations=100,
               board_size='small')
-    c.teach(from_prev_examples=False)
+    c.teach(from_prev_examples=True)

@@ -19,7 +19,7 @@ class MCTS():
     This class handles the MCTS tree.
     """
 
-    def __init__(self, game, nnet, cpuct=1, num_mcts_sims=100):
+    def __init__(self, game, nnet, cpuct=4, num_mcts_sims=100):
         self.game = game
         self.nnet = nnet
         self.cpuct = cpuct
