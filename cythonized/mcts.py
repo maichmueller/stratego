@@ -19,9 +19,9 @@ class MCTS():
     This class handles the MCTS tree.
     """
 
-    def __init__(self, game, nnet, cpuct=4, num_mcts_sims=100):
-        self.game = game
+    def __init__(self, nnet, cpuct=4, num_mcts_sims=100):
         self.nnet = nnet
+        self.nnet.nnet.cpu()
         self.cpuct = cpuct
         self.num_mcts_sims = max(1, num_mcts_sims)
         self.Qsa = {}       # stores Q values for s,a (as defined in the paper)
@@ -30,9 +30,7 @@ class MCTS():
         self.Ps = {}        # stores initial policy (returned by neural net)
 
         self.Es = {}        # stores game.is_terminal ended for board s
-        # self.Vs = {}        # stores game.get_poss_moves for board s
-
-        self.same_reps = defaultdict(list)
+        self.Vs = {}        # stores game.get_poss_moves for board s
 
     def get_action_prob(self, state, player, expl_rate=1):
         """
@@ -91,15 +89,15 @@ class MCTS():
         if self.Es[s] != 404:
             # terminal node
             return -self.Es[s]
-        actions, relation_dict = utils.action_rep.actions, utils.action_rep.act_piece_relation
-        actions_mask = utils.get_actions_mask(state.board, 0,
-                                              relation_dict,
-                                              actions)
 
         if s not in self.Ps:
             # leaf node
             # print('Leaf node reached.')
             Ps, v = self.nnet.predict(torch.Tensor(state.state_represent(0)))
+            actions, relation_dict = utils.action_rep.actions, utils.action_rep.act_piece_relation
+            actions_mask = utils.get_actions_mask(state.board, 0,
+                                                  relation_dict,
+                                                  actions)
             self.Ps[s] = Ps * actions_mask  # masking invalid moves
             sum_ps = np.sum(self.Ps[s])
             if sum_ps > 0:
@@ -115,14 +113,12 @@ class MCTS():
                 self.Ps[s] = self.Ps[s] + actions_mask
                 self.Ps[s] /= np.sum(self.Ps[s])
 
-            # self.Vs[s] = actions_mask
+            self.Vs[s] = actions_mask
             self.Ns[s] = 0
             return -v
 
-        self.same_reps[s].append((deepcopy(state.board), player, actions_mask))
-
-        # valids = self.Vs[s]
-        valids = actions_mask
+        valids = self.Vs[s]
+        # valids = actions_mask
         cur_best = -float('inf')
         best_action = -1
 

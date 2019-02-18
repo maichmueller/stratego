@@ -21,6 +21,8 @@ from tqdm.auto import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import cpu_count
 
+from torch.multiprocessing import Pool, Process, set_start_method
+
 
 TrainingTurn = namedtuple('TrainingTurn', 'board pi v player')
 
@@ -57,10 +59,10 @@ class Coach:
         self.nnet = student.model
         self.opp_net = self.game.agents[1].model  # the competitor network
         # self.mcts = MCTS(self.game, self.nnet)
-        self.train_expls_hist = []   # history of examples from num_iters_for_train_examples_history latest iterations
+        self.train_examples = []   # history of examples from num_iters_for_train_examples_history latest iterations
         self.skip_first_self_play = False  # can be overriden in load_train_examples()
 
-    def exec_ep(self, mcts, reset_game=True):
+    def exec_ep(self, mcts, state=None, reset_game=True):
         """
         This function executes one episode of self-play, starting with player 1.
         As the game is played, each turn is added as a training example to
@@ -76,15 +78,12 @@ class Coach:
         """
         if reset_game:
             self.game.reset()
-        state = deepcopy(self.game.state)
+
+        if state is None:
+            state = deepcopy(self.game.state)
         ep_step = 0
 
         episode_examples = []
-
-        def invert_move(m):
-            from_, to_ = m
-            return ((self.game.game_dim-1 - from_[0], self.game.game_dim-1 - from_[1]),
-                    (self.game.game_dim-1 - to_[0], self.game.game_dim-1 - to_[1]))
 
         while True:
             ep_step += 1
@@ -114,10 +113,11 @@ class Coach:
             # utils.print_board(state.board)
             # print(r)
             if r != 404:
-                return [TrainingTurn(board, pi, (-1)**(player != turn) * r, player)
-                        for (board, pi, _, player) in episode_examples]
+                self.train_examples.extend([TrainingTurn(board, pi, (-1)**(player != turn) * r, player)
+                                            for (board, pi, _, player) in episode_examples])
+                return
 
-    def teach(self, from_prev_examples=False):
+    def teach(self, from_prev_examples=False, multiprocess=False):
         """
         Performs num_iters iterations with num_episodes episodes of self-play in each
         iteration. After every iteration, it retrains the neural network with
@@ -140,69 +140,63 @@ class Coach:
                 if os.path.isfile(self.model_folder + f'best.pth.tar'):
                     self.nnet.load_checkpoint(self.model_folder, f'best.pth.tar')
 
-        n_cpu = cpu_count()
+        # n_cpu = cpu_count()
 
         for i in range(1, self.num_iters + 1):
             # bookkeeping
 
-            print('\n------ITER ' + str(i) + '------')
+            print('\n------ITER ' + str(i) + '------', flush=True)
 
             # examples of the iteration
             if not self.skip_first_self_play or i > 1:
-                iter_train_expls = []
 
-                # distances = []
-                # with ProcessPoolExecutor(max_workers=cpu_count()) as executor:
-                #     dist_pools = list((executor.submit(self.dijkstra, src=n_src) for n_src in nodes_source_cat))
-                #     for future in as_completed(dist_pools):
-                #         pbar.update(1)
-                #         distances.append(future.result())
-
-                with ProcessPoolExecutor(max_workers=n_cpu) as executor:
+                if multiprocess:
+                    pbar = tqdm(total=self.num_episodes)
+                    pbar.set_description('Creating self-play training turns')
+                    with ProcessPoolExecutor(max_workers=cpu_count()) as executor:
+                        game_states = []
+                        for _ in range(self.num_episodes):
+                            self.game.reset()
+                            game_states.append(deepcopy(self.game.state))
+                        futures = list(
+                            (executor.submit(self.exec_ep,
+                                             mcts=MCTS(deepcopy(self.nnet), num_mcts_sims=self.mcts_sims),
+                                             reset_game=True,
+                                             state=game_states[i])
+                             for i in range(self.num_episodes)))
+                        for _ in as_completed(futures):
+                            pbar.update(1)
+                else:
                     for _ in tqdm(range(self.num_episodes)):
                         # bookkeeping + plot progress through tqdm
                         # reset search tree
-                        mcts = MCTS(self.game, self.nnet, num_mcts_sims=self.mcts_sims)
-                        future = executor.submit(self.exec_ep, mcts=mcts, reset_game=True)
-                        iter_train_expls.extend(future.result())
+                        mcts = MCTS(self.nnet, num_mcts_sims=self.mcts_sims)
+                        self.exec_ep(mcts, reset_game=True)
 
-                # for _ in tqdm(range(self.num_episodes)):
-                #     # bookkeeping + plot progress through tqdm
-                #     # reset search tree
-                #     self.mcts = MCTS(self.game, self.nnet, num_mcts_sims=self.mcts_sims)
-                #     iter_train_expls += self.exec_ep()
-                #     self.game.reset()
-
-                # save the iteration examples to the history
-                self.train_expls_hist += iter_train_expls
-
-            diff_hist_len = len(self.train_expls_hist) - self.num_iters_trainex_hist
+            diff_hist_len = len(self.train_examples) - self.num_iters_trainex_hist
             if diff_hist_len > 0:
-                print("len(train_examples_history) =", len(self.train_expls_hist),
+                print("len(train_examples_history) =", len(self.train_examples),
                       f" => remove the oldest {diff_hist_len} train_examples")
-                self.train_expls_hist = self.train_expls_hist[diff_hist_len:]
+                self.train_examples = self.train_examples[diff_hist_len:]
             # backup history to a file
             # NB! the examples were collected using the model from the previous iteration, so (i-1)
             if not self.skip_first_self_play or i > 0:
                 self.save_train_examples(i - 1)
 
-            # print(self.train_expls_hist)
+            # print(self.train_examples)
 
             # training new network, keeping a copy of the old one
             self.nnet.save_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
             self.opp_net.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
-            # pmcts = MCTS(self.game, self.opp_net)
 
-            self.nnet.train(self.train_expls_hist, 100, batch_size=4096)
-            # nmcts = MCTS(self.game, self.nnet)
+            self.nnet.train(self.train_examples, 100, batch_size=4096)
 
             print('\nPITTING AGAINST PREVIOUS VERSION')
             test_ag_0 = agent.AlphaZero(0, low_train=True)
             test_ag_0.model.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
-            # test_ag_0.decide_move = lambda x: np.argmax(nmcts.get_action_prob(x, expl_rate=0))
             test_ag_1 = agent.AlphaZero(1, low_train=True)
             test_ag_1.model.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
-            # test_ag_1.decide_move = lambda x: np.argmax(pmcts.get_action_prob(x, expl_rate=0))
+
             arena = Arena(test_ag_0, test_ag_1, board_size=self.game.board_size)
             ag_0_wins, ag_1_wins, draws = arena.pit(num_sims=self.num_iters)
 
@@ -222,7 +216,7 @@ class Coach:
             os.makedirs(folder)
         filename = os.path.join(folder, f'checkpoint_{iteration}.pth.tar' + ".examples")
         with open(filename, "wb+") as f:
-            Pickler(f).dump(self.train_expls_hist)
+            Pickler(f).dump(self.train_examples)
         f.close()
 
     def load_train_examples(self, examples_fname):
@@ -236,7 +230,7 @@ class Coach:
         else:
             print("File with train_examples found. Reading it.")
             with open(examples_file, "rb") as f:
-                self.train_expls_hist += Unpickler(f).load()
+                self.train_examples += Unpickler(f).load()
             f.close()
             # examples based on the model were already collected (loaded)
             self.skip_first_self_play = True
@@ -247,4 +241,4 @@ if __name__ == '__main__':
               num_episodes=200,
               mcts_simulations=100,
               board_size='small')
-    c.teach(from_prev_examples=True)
+    c.teach(from_prev_examples=False, multiprocess=True)

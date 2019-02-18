@@ -95,6 +95,8 @@ class Game:
 
         self.move_count = 1  # agent 1 starts
 
+        return self
+
     def run_game(self, show=False, **kwargs):
         game_over = False
         rewards = None
