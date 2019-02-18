@@ -8,21 +8,28 @@ import os
 from cythonized.utils import AverageMeter
 from progressBar.progress.bar import Bar
 from tqdm import tqdm
+from cythonized.utils import GLOBAL_DEVICE
 
 
 class NNetWrapper:
+    global GLOBAL_DEVICE
+
     def __init__(self, nnet, game_dim, action_dim):
         self.nnet = nnet
-        if nnet.device.type != 'cpu':
-            nnet.cuda()
         self.board_x, self.board_y = game_dim, game_dim
         self.action_size = action_dim
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    def to_device(self):
+        if GLOBAL_DEVICE.type == 'cpu':
+            self.nnet.cpu()
+        else:
+            self.nnet.cuda()
 
     def train(self, examples, epochs, batch_size=128):
         """
         examples: list of examples, each example is of form (board, pi, v)
         """
+        self.to_device()
         optimizer = optim.Adam(self.nnet.parameters())
         pbar = tqdm(range(epochs))
         pbar.set_description('Training epoch')
@@ -53,12 +60,12 @@ class NNetWrapper:
                     print('PIS', pis)
                     print('VS', vs)
                     raise e
-                boards = torch.cat(boards)
-                target_pis = torch.Tensor(np.array(pis))
-                target_vs = torch.Tensor(np.array(vs).astype(np.float64))
+                boards = torch.cat(boards).to(GLOBAL_DEVICE)
+                target_pis = torch.Tensor(np.array(pis)).to(GLOBAL_DEVICE)
+                target_vs = torch.Tensor(np.array(vs).astype(np.float64)).to(GLOBAL_DEVICE)
 
                 # predict
-                # boards, target_pis, target_vs = list(map(lambda x: x.contiguous().to(self.device),
+                # boards, target_pis, target_vs = list(map(lambda x: x.contiguous().to(GLOBAL_DEVICE),
                 #                                          [boards, target_pis, target_vs]))
 
                 # measure data loading time
@@ -134,7 +141,7 @@ class NNetWrapper:
         filepath = os.path.join(folder, filename)
         if not os.path.exists(filepath):
             raise ValueError("No model in path {}".format(filepath))
-        map_location = None if self.device != 'cpu' else 'cpu'
+        map_location = None if GLOBAL_DEVICE != 'cpu' else 'cpu'
         checkpoint = torch.load(filepath, map_location=map_location)
         self.nnet.load_state_dict(checkpoint['state_dict'])
 
@@ -143,6 +150,7 @@ class NNConvolutional(nn.Module):
     """
     Convenience class to create convolutional layers with optional max pooling and dropout in between
     """
+    global GLOBAL_DEVICE
 
     def __init__(self, channels_in, filter_amounts, kernel_sizes=None,
                  maxpool_layer_pos=None, dropout_prob_per_layer=None):
@@ -172,8 +180,6 @@ class NNConvolutional(nn.Module):
         for idx, kernel_size in enumerate(kernel_sizes):
             zero_paddings[idx] = (kernel_size - 1) / 2
 
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
         self.conv_layers = nn.ModuleList()
         # this conversion needs to happen because of some internal torch problem with numpy.int.32
         filter_amounts = [channels_in] + list(map(int, filter_amounts))
@@ -190,7 +196,7 @@ class NNConvolutional(nn.Module):
                 self.conv_layers.extend([nn.Dropout2d(p=self.dropout_prob_per_layer[k])])
 
     def forward(self, x):
-        x = x.to(self.device)
+        x = x.to(GLOBAL_DEVICE)
         for layer in self.conv_layers:
             x = layer(x)
         return x
@@ -200,6 +206,7 @@ class NNLinear(nn.Module):
     """
     Convenience class to create a chain of linear layers
     """
+    global GLOBAL_DEVICE
 
     def __init__(self, D_in, D_out, nr_lin_layers, start_layer_exponent=8,
                  activation_function=nn.ReLU()):
@@ -229,6 +236,8 @@ class NNLinear(nn.Module):
 
 
 class ELaborateConvFC(nn.Module):
+    global GLOBAL_DEVICE
+
     def __init__(self, game_dim, channels_in, filter_amounts, d_in, d_out, nr_lin_layers,
                  kernel_sizes=None, maxpool_layer_pos=None, dropout_prob_per_layer=None,
                  start_layer_exponent=8,
@@ -246,10 +255,9 @@ class ELaborateConvFC(nn.Module):
         self.board_value_layer = nn.Linear(in_features=out_features,
                                            out_features=1)
         self.game_dim = game_dim
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     def extract_features(self, x):
-        x = x.to(self.device)
+        x = x.to(GLOBAL_DEVICE)
         params = self.named_parameters()
         output_per_layer = []
         for layer in self.conv_net.conv_layers:
@@ -261,7 +269,7 @@ class ELaborateConvFC(nn.Module):
         return params, output_per_layer
 
     def forward(self, x):
-        x.to(self.device)
+        x.to(GLOBAL_DEVICE)
         x = self.conv_net(x)
         x = x.view(-1, self.d_in)
         x = self.fc_net(x)

@@ -225,7 +225,7 @@ class Reinforce(Agent, abc.ABC):
     def __init__(self, team, setup=None):
         super(Reinforce, self).__init__(team=team, setup=setup)
         self.learner = True
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        GLOBAL_DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.state_dim = None
         self.action_dim = None
         self.model = None
@@ -328,7 +328,7 @@ class Reinforce(Agent, abc.ABC):
             if p is not None:  # piece on this field
                 for i, (team, type_, vers) in enumerate(conditions):
                     board_state[(0, i) + pos] = self.check(p, team, type_, vers)  # represent type
-        board_state = torch.Tensor(board_state).to(self.device)
+        board_state = torch.Tensor(board_state).to(GLOBAL_DEVICE)
         # add dim for batches
         board_state = board_state.view(1, state_dim, self.board.shape[0], self.board.shape[0])
         return board_state
@@ -442,6 +442,7 @@ class AlphaZero(Reinforce):
 
     def decide_move(self, *args, **kwargs):
         self.force_canonical(self.team)
+        self.model.to_device()
         pred, _ = self.model.predict(self.board_to_state(self.board))
 
         if self.low_train:

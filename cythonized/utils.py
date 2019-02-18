@@ -13,6 +13,7 @@ import random
 
 
 ID_SET = set(range(100000))
+GLOBAL_DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def set_id():

@@ -22,6 +22,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import cpu_count
 
 from torch.multiprocessing import Pool, Process, set_start_method
+from cythonized.utils import GLOBAL_DEVICE
+import torch
 
 
 TrainingTurn = namedtuple('TrainingTurn', 'board pi v player')
@@ -125,6 +127,7 @@ class Coach:
         It then pits the new neural network against the old one and accepts it
         only if it wins >= updateThreshold fraction of games.
         """
+        global GLOBAL_DEVICE
         if from_prev_examples:
             i = 0
             checkpoint_found = False
@@ -149,8 +152,12 @@ class Coach:
 
             # examples of the iteration
             if not self.skip_first_self_play or i > 1:
+                curr_device = deepcopy(GLOBAL_DEVICE)
+                GLOBAL_DEVICE = torch.device('cpu')
+                self.nnet.to_device()
 
                 if multiprocess:
+                    set_start_method('spawn')
                     pbar = tqdm(total=self.num_episodes)
                     pbar.set_description('Creating self-play training turns')
                     with ProcessPoolExecutor(max_workers=cpu_count()) as executor:
@@ -172,6 +179,9 @@ class Coach:
                         # reset search tree
                         mcts = MCTS(self.nnet, num_mcts_sims=self.mcts_sims)
                         self.exec_ep(mcts, reset_game=True)
+
+                GLOBAL_DEVICE = curr_device
+                self.nnet.to_device()
 
             diff_hist_len = len(self.train_examples) - self.num_iters_trainex_hist
             if diff_hist_len > 0:
