@@ -57,6 +57,7 @@ class Coach:
 
         self.game = Game(agent0=student, agent1=deepcopy(student), **kwargs)
         self.nnet = student.model
+        self.nnet.cpu()
         self.opp_net = self.game.agents[1].model  # the competitor network
         # self.mcts = MCTS(self.game, self.nnet)
         self.train_examples = []   # history of examples from num_iters_for_train_examples_history latest iterations
@@ -103,10 +104,6 @@ class Coach:
                 episode_examples.append(TrainingTurn(self.game.agents[0].board_to_state(deepcopy(state.board)),
                                                      pi, None, turn))
 
-                # state.force_canonical(0)
-
-                # if turn == 1:
-                #     move = invert_move(move)
 
                 state.do_move(move=move)
                 r = state.is_terminal(force=True, turn=0)
