@@ -102,7 +102,7 @@ class Coach:
                 state.force_canonical(player=turn)
                 move = state.action_to_move(action, 0, force=True)
 
-                episode_examples.append(TrainingTurn(self.game.agents[0].board_to_state(deepcopy(state.board)),
+                episode_examples.append(TrainingTurn(deepcopy(state.board),
                                                      pi, None, turn))
 
                 # state.force_canonical(0)
@@ -115,9 +115,8 @@ class Coach:
             # utils.print_board(state.board)
             # print(r)
             if r != 404:
-                self.train_examples.extend([TrainingTurn(board, pi, (-1)**(player != turn) * r, player)
-                                            for (board, pi, _, player) in episode_examples])
-                return
+                return [TrainingTurn(board, pi, (-1)**(player != turn) * r, player)
+                        for (board, pi, _, player) in episode_examples]
 
     def teach(self, from_prev_examples=False, multiprocess=False):
         """
@@ -127,7 +126,6 @@ class Coach:
         It then pits the new neural network against the old one and accepts it
         only if it wins >= updateThreshold fraction of games.
         """
-        global GLOBAL_DEVICE
         if from_prev_examples:
             i = 0
             checkpoint_found = False
@@ -151,37 +149,39 @@ class Coach:
             print('\n------ITER ' + str(i) + '------', flush=True)
 
             # examples of the iteration
+            train_examples = []
             if not self.skip_first_self_play or i > 1:
-                curr_device = deepcopy(GLOBAL_DEVICE)
-                GLOBAL_DEVICE = torch.device('cpu')
+                GLOBAL_DEVICE.to_cpu()
                 self.nnet.to_device()
+                self.nnet.nnet.share_memory()
 
                 if multiprocess:
-                    set_start_method('spawn')
                     pbar = tqdm(total=self.num_episodes)
                     pbar.set_description('Creating self-play training turns')
-                    with ProcessPoolExecutor(max_workers=cpu_count()) as executor:
-                        game_states = []
-                        for _ in range(self.num_episodes):
-                            self.game.reset()
-                            game_states.append(deepcopy(self.game.state))
+                    with ProcessPoolExecutor(max_workers=cpu_count()/2) as executor:
                         futures = list(
                             (executor.submit(self.exec_ep,
-                                             mcts=MCTS(deepcopy(self.nnet), num_mcts_sims=self.mcts_sims),
-                                             reset_game=True,
-                                             state=game_states[i])
-                             for i in range(self.num_episodes)))
-                        for _ in as_completed(futures):
+                                             mcts=MCTS(self.nnet, num_mcts_sims=self.mcts_sims),
+                                             reset_game=False,
+                                             state=deepcopy(self.game.reset().state))
+                             for i in range(self.num_episodes))
+                        )
+                        for future in as_completed(futures):
                             pbar.update(1)
+                            train_examples.extend(future.result())
                 else:
                     for _ in tqdm(range(self.num_episodes)):
                         # bookkeeping + plot progress through tqdm
                         # reset search tree
                         mcts = MCTS(self.nnet, num_mcts_sims=self.mcts_sims)
-                        self.exec_ep(mcts, reset_game=True)
+                        train_examples.extend(self.exec_ep(mcts, reset_game=True))
 
-                GLOBAL_DEVICE = curr_device
-                self.nnet.to_device()
+            # convert the bard to a state rep
+            train_exs = []
+            for tr_turn in train_examples:
+                train_exs.append(TrainingTurn(self.game.agents[0].board_to_state(tr_turn.board),
+                                              tr_turn.pi, tr_turn.v, tr_turn.player))
+            self.train_examples.extend(train_exs)
 
             diff_hist_len = len(self.train_examples) - self.num_iters_trainex_hist
             if diff_hist_len > 0:
@@ -190,7 +190,7 @@ class Coach:
                 self.train_examples = self.train_examples[diff_hist_len:]
             # backup history to a file
             # NB! the examples were collected using the model from the previous iteration, so (i-1)
-            if not self.skip_first_self_play or i > 0:
+            if not self.skip_first_self_play:
                 self.save_train_examples(i - 1)
 
             # print(self.train_examples)
@@ -198,6 +198,9 @@ class Coach:
             # training new network, keeping a copy of the old one
             self.nnet.save_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
             self.opp_net.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
+
+            GLOBAL_DEVICE.to_gpu()
+            self.nnet.to_device()
 
             self.nnet.train(self.train_examples, 100, batch_size=4096)
 
@@ -251,4 +254,4 @@ if __name__ == '__main__':
               num_episodes=200,
               mcts_simulations=100,
               board_size='small')
-    c.teach(from_prev_examples=False, multiprocess=True)
+    c.teach(from_prev_examples=True, multiprocess=False)
