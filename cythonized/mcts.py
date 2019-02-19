@@ -21,7 +21,6 @@ class MCTS():
 
     def __init__(self, nnet, cpuct=4, num_mcts_sims=100):
         self.nnet = nnet
-        self.nnet.nnet.cpu()
         self.cpuct = cpuct
         self.num_mcts_sims = max(1, num_mcts_sims)
         self.Qsa = {}       # stores Q values for s,a (as defined in the paper)
