@@ -59,7 +59,6 @@ class Coach:
 
         self.game = Game(agent0=student, agent1=deepcopy(student), **kwargs)
         self.nnet = student.model
-        self.nnet.cpu()
         self.opp_net = self.game.agents[1].model  # the competitor network
         # self.mcts = MCTS(self.game, self.nnet)
         self.train_examples = []   # history of examples from num_iters_for_train_examples_history latest iterations
