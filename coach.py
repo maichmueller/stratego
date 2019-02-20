@@ -105,10 +105,6 @@ class Coach:
                 episode_examples.append(TrainingTurn(deepcopy(state.board),
                                                      pi, None, turn))
 
-                # state.force_canonical(0)
-
-                # if turn == 1:
-                #     move = invert_move(move)
 
                 state.do_move(move=move)
                 r = state.is_terminal(force=True, turn=0)
