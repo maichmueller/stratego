@@ -190,7 +190,7 @@ class Coach:
                 self.train_examples = self.train_examples[diff_hist_len:]
             # backup history to a file
             # NB! the examples were collected using the model from the previous iteration, so (i-1)
-            if not self.skip_first_self_play:
+            if not self.skip_first_self_play or i > 0:
                 self.save_train_examples(i - 1)
 
             # print(self.train_examples)
