@@ -12,9 +12,6 @@ import copy
 import random
 
 
-ID_SET = set(range(100000))
-
-
 class Device:
     def __init__(self):
         self.device = torch.device('cpu')
@@ -29,13 +26,6 @@ class Device:
 
 
 GLOBAL_DEVICE = Device()
-
-
-def set_id():
-    global ID_SET
-    id_ = random.sample(ID_SET, 1)
-    ID_SET -= set(id_)
-    return id_
 
 
 class GameDefaults:

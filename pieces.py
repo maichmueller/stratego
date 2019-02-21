@@ -9,7 +9,6 @@ class Piece:
     def __init__(self, type, team, position):
         self.position = position
         # self.positions_history = [position]
-        self.id = utils.set_id()
         self.potential_types = [0, 1, 2, 3, 10, 11]
         self.version = 1
         self.dead = False
