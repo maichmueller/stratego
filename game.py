@@ -416,43 +416,6 @@ class GameState:
 
         return board_state
 
-    # def state_represent(self, player=0):
-    #     conditions = []
-    #     other = (player + 1) % 2
-    #
-    #     # own team
-    #     # flag, 1 , 10, bombs
-    #     conditions += [(player, t) for t in [0, 1, 10, 11]]
-    #     # 2's, 3 versions
-    #     conditions += [(player, t) for t in [2]*3]
-    #     # 3's, 2 versions
-    #     conditions += [(player, t) for t in [3]*2]
-    #
-    #     # opponent team
-    #     # flag, 1 , 10, bombs
-    #     conditions += [(other, t) for t in [0, 1, 10, 11]]
-    #     # 2's, 3 versions
-    #     conditions += [(other, t) for t in [2]*3]
-    #     # 3's, 2 versions
-    #     conditions += [(other, t) for t in [3]*2]
-    #
-    #     # obstacle
-    #     conditions += [(99, 99)]
-    #
-    #     def check(piece, team, type_):
-    #         return 1 * (piece.team == team and piece.type == type_)
-    #
-    #     board = self.board
-    #     state_dim = len(conditions)
-    #     board_state = np.zeros((1, state_dim, self.game_dim, self.game_dim))  # zeros for empty field
-    #     for pos, val in np.ndenumerate(board):
-    #         p = board[pos]
-    #         if p is not None:  # piece on this field
-    #             for i, (team, type_) in enumerate(conditions):
-    #                 board_state[(0, i) + pos] = check(p, team, type_)  # represent type
-    #
-    #     return board_state
-
     def force_canonical(self, player):
         """
         Make the given player be team 0.

@@ -41,7 +41,7 @@ class MCTS():
         """
         for i in range(self.num_mcts_sims):
             # print('\rIteration:', i, end='')
-            r = self.search(deepcopy(state), player)
+            r = self.search(deepcopy(state), player, root=True)
 
         state.force_canonical(player)
         s = str(state)
@@ -61,7 +61,7 @@ class MCTS():
         probs = [x/float(sum(counts)) for x in counts]
         return probs
 
-    def search(self, state, player):
+    def search(self, state, player, root=False):
         """
         This function performs one iteration of MCTS. It is recursively called
         till a leaf node is found. The action chosen at each node is one that
@@ -98,19 +98,17 @@ class MCTS():
                                                   relation_dict,
                                                   actions)
             self.Ps[s] = Ps * actions_mask  # masking invalid moves
-            sum_ps = np.sum(self.Ps[s])
-            if sum_ps > 0:
-                self.Ps[s] /= sum_ps   # renormalize
-            else:
-                # if all valid moves were masked make all valid moves equally probable
-
-                # NB! All valid moves may be masked if either your NNet architecture is
-                # insufficient or you've get overfitting or something else.
-                # If you have got dozens or hundreds of these messages you
-                # should pay attention to your NNet and/or training process.
-                print("All valid moves were masked, do workaround.")
-                self.Ps[s] = self.Ps[s] + actions_mask
-                self.Ps[s] /= np.sum(self.Ps[s])
+            self.Ps[s] /= np.sum(self.Ps[s])  # renormalize
+            # else:
+            #     # if all valid moves were masked make all valid moves equally probable
+            #
+            #     # NB! All valid moves may be masked if either your NNet architecture is
+            #     # insufficient or you've get overfitting or something else.
+            #     # If you have got dozens or hundreds of these messages you
+            #     # should pay attention to your NNet and/or training process.
+            #     print("All valid moves were masked, do workaround.")
+            #     self.Ps[s] = self.Ps[s] + actions_mask
+            #     self.Ps[s] /= np.sum(self.Ps[s])
 
             self.Vs[s] = actions_mask
             self.Ns[s] = 0
@@ -121,13 +119,18 @@ class MCTS():
         cur_best = -float('inf')
         best_action = -1
 
+        Ps = self.Ps[s]
+        if root:
+            dirich_noise = np.random.dirichlet([0.5]*utils.action_rep.action_dim)
+            Ps = ((1 - 0.25) * Ps + 0.25 * dirich_noise) * valids
+            Ps /= Ps.sum()
+
         # pick the action with the highest upper confidence bound
         for a in np.where(valids)[0]:
-            # print('Valid:', a, self.game.action_to_move(a, player), flush=True)
             if (s, a) in self.Qsa:
-                u = self.Qsa[(s, a)] + self.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s]) / (1 + self.Nsa[(s, a)])
+                u = self.Qsa[(s, a)] + self.cpuct * Ps[a] * math.sqrt(self.Ns[s]) / (1 + self.Nsa[(s, a)])
             else:
-                u = self.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s] + EPS)     # Q = 0 ?
+                u = self.cpuct * Ps[a] * math.sqrt(self.Ns[s] + EPS)     # Q = 0 ?
 
             if u > cur_best:
                 cur_best = u
@@ -136,26 +139,9 @@ class MCTS():
         a = best_action
         move = state.action_to_move(a, 0, force=True)
 
-        # print(f'Turn: {player} Action: {str(m).rjust(2)} Action Move: {actions[m]} '
-        #       f'Actor: {utils.action_rep.actors[m]} Move: {move} '
-        #       f'Piece: {state.board[move[0]]}')
+        state.do_move(move)
 
-        try:
-            state.do_move(move)
-        except Exception as e:
-            print('ERROR OCCURED')
-            print('Canonical:', state.canonical_teams)
-            print(s)
-            print([(i, self.Ps[s][i]) for i in range(64)])
-            print(not any([(s, a) in self.Qsa for a in np.where(valids)[0]]))
-            print('State-Action in Qs:', (s, a) in self.Qsa)
-            if (s, a) in self.Qsa:
-                print(self.Qsa[(s, a)])
-            else:
-                pass
-            utils.print_board(state.board, block=True)
-            raise e
-        v = self.search(state, (player + 1) % 2)
+        v = self.search(state, (player + 1) % 2, root=False)
 
         if (s, a) in self.Qsa:
             self.Qsa[(s, a)] = (self.Nsa[(s, a)] * self.Qsa[(s, a)] + v) / (self.Nsa[(s, a)] + 1)

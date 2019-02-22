@@ -16,4 +16,4 @@ if os.path.isfile('./checkpoints/' + f'best.pth.tar'):
 if os.path.isfile('./checkpoints/' + f'best.pth.tar'):
     ar.agent_1.model.load_checkpoint('./checkpoints/', f'best.pth.tar')
 
-ar.pit(10000, show_game=False)
+ar.pit(10000, show_game=True)
