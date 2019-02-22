@@ -379,31 +379,58 @@ class GameState:
             self.check_terminal(**kwargs)
         return self.terminal
 
+    @staticmethod
+    def check(piece, team, type_, version, hidden):
+        if team == 0:
+            if not hidden:
+                # if it's about team 0, the 'hidden' status is unimportant
+                return 1 * (piece.team == team and piece.type == type_
+                            and piece.version == version)
+            else:
+                # hidden is only important for the single layer that checks for
+                # only this quality!
+                return 1 * (piece.team == team and piece.hidden == hidden)
+
+        elif team == 1:
+            # for team 1 we only get the info about type and version if it isn't hidden
+            # otherwise it will fall into the 'hidden' layer
+            if not hidden:
+                if piece.hidden:
+                    return 0
+                else:
+                    return 1 * (piece.team == team and piece.type == type_
+                                and piece.version == version)
+            else:
+                return 1 * (piece.team == team and piece.hidden)
+        else:
+            # only obstace should reach here
+            return 1 * (piece.team == team)
+
     def state_represent(self, player=0):
         conditions = []
         other = (player + 1) % 2
 
         # own team
         # flag, 1 , 10, bombs
-        conditions += [(player, t, v) for (t, v) in zip([0, 1, 10, 11], [1]*4)]
+        conditions += [(player, t, v, h) for (t, v, h) in zip([0, 1, 10, 11], [1]*4, [0]*4)]
         # 2's, 3 versions
-        conditions += [(player, t, v) for (t, v) in zip([2]*3, [1, 2, 3])]
+        conditions += [(player, t, v, h) for (t, v, h) in zip([2]*3, [1, 2, 3], [0]*3)]
         # 3's, 2 versions
-        conditions += [(player, t, v) for (t, v) in zip([3]*2, [1, 2])]
+        conditions += [(player, t, v, h) for (t, v, h) in zip([3]*2, [1, 2], [0]*2)]
+        # all own hidden pieces
+        conditions += [(player, None, None, 1)]
 
         # opponent team
         # flag, 1 , 10, bombs
-        conditions += [(other, t, v) for (t, v) in zip([0, 1, 10, 11], [1]*4)]
+        conditions += [(other, t, v, h) for (t, v, h) in zip([0, 1, 10, 11], [1]*4, [0]*4)]
         # 2's, 3 versions
-        conditions += [(other, t, v) for (t, v) in zip([2]*3, [1, 2, 3])]
+        conditions += [(other, t, v, h) for (t, v, h) in zip([2]*3, [1, 2, 3], [0]*3)]
         # 3's, 2 versions
-        conditions += [(other, t, v) for (t, v) in zip([3]*2, [1, 2])]
-
+        conditions += [(other, t, v, h) for (t, v, h) in zip([3]*2, [1, 2], [0]*2)]
+        # all opponent hidden pieces
+        conditions += [(other, None, None, 1)]
         # obstacle
-        conditions += [(99, 99, 1)]
-
-        def check(piece, team, type_, version):
-            return 1 * (piece.team == team and piece.type == type_ and piece.version == version)
+        conditions += [(99, 99, 1, 1)]
 
         board = self.board
         state_dim = len(conditions)
@@ -411,8 +438,8 @@ class GameState:
         for pos, val in np.ndenumerate(board):
             p = board[pos]
             if p is not None:  # piece on this field
-                for i, (team, type_, vers) in enumerate(conditions):
-                    board_state[(0, i) + pos] = check(p, team, type_, vers)  # represent type
+                for i, (team, type_, vers, hidden) in enumerate(conditions):
+                    board_state[(0, i) + pos] = self.check(p, team, type_, vers, hidden)  # represent type
 
         return board_state
 

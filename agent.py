@@ -308,8 +308,31 @@ class Reinforce(Agent, abc.ABC):
         return move
 
     @staticmethod
-    def check(piece, team, type_, version):
-        return 1 * (piece.team == team and piece.type == type_ and piece.version == version)
+    def check(piece, team, type_, version, hidden):
+        if team == 0:
+            if not hidden:
+                # if it's about team 0, the 'hidden' status is unimportant
+                return 1 * (piece.team == team and piece.type == type_
+                            and piece.version == version)
+            else:
+                # hidden is only important for the single layer that checks for
+                # only this quality!
+                return 1 * (piece.team == team and piece.hidden == hidden)
+
+        elif team == 1:
+            # for team 1 we only get the info about type and version if it isn't hidden
+            # otherwise it will fall into the 'hidden' layer
+            if not hidden:
+                if piece.hidden:
+                    return 0
+                else:
+                    return 1 * (piece.team == team and piece.type == type_
+                                and piece.version == version)
+            else:
+                return 1 * (piece.team == team and piece.hidden)
+        else:
+            # only obstace should reach here
+            return 1 * (piece.team == team)
 
     def board_to_state(self, board=None):
         """
@@ -328,8 +351,8 @@ class Reinforce(Agent, abc.ABC):
         for pos, val in np.ndenumerate(board):
             p = board[pos]
             if p is not None:  # piece on this field
-                for i, (team, type_, vers) in enumerate(conditions):
-                    board_state[(0, i) + pos] = self.check(p, team, type_, vers)  # represent type
+                for i, (team, type_, vers, hidden) in enumerate(conditions):
+                    board_state[(0, i) + pos] = self.check(p, team, type_, vers, hidden)  # represent type
         board_state = torch.Tensor(board_state).to(GLOBAL_DEVICE.device)
         # add dim for batches
         board_state = board_state.view(1, state_dim, self.board.shape[0], self.board.shape[0])
@@ -445,7 +468,8 @@ class AlphaZero(Reinforce):
     def decide_move(self, *args, **kwargs):
         self.force_canonical(self.team)
         self.model.to_device()
-        pred, _ = self.model.predict(self.board_to_state(self.board))
+        board_state = self.board_to_state(self.board)
+        pred, _ = self.model.predict(board_state)
 
         if self.low_train:
             actions, relation_dict = utils.action_rep.actions, utils.action_rep.act_piece_relation
@@ -531,22 +555,25 @@ class AlphaZero(Reinforce):
 
         # own team
         # flag, 1 , 10, bombs
-        conditions += [(0, t, v) for (t, v) in zip([0, 1, 10, 11], [1]*4)]
+        conditions += [(0, t, v, h) for (t, v, h) in zip([0, 1, 10, 11], [1]*4, [0]*4)]
         # 2's, 3 versions
-        conditions += [(0, t, v) for (t, v) in zip([2]*3, [1, 2, 3])]
+        conditions += [(0, t, v, h) for (t, v, h) in zip([2]*3, [1, 2, 3], [0]*3)]
         # 3's, 2 versions
-        conditions += [(0, t, v) for (t, v) in zip([3]*2, [1, 2])]
+        conditions += [(0, t, v, h) for (t, v, h) in zip([3]*2, [1, 2], [0]*2)]
+        # all own hidden pieces
+        conditions += [(0, None, None, 1)]
 
         # opponent team
         # flag, 1 , 10, bombs
-        conditions += [(1, t, v) for (t, v) in zip([0, 1, 10, 11], [1]*4)]
+        conditions += [(1, t, v, h) for (t, v, h) in zip([0, 1, 10, 11], [1]*4, [0]*4)]
         # 2's, 3 versions
-        conditions += [(1, t, v) for (t, v) in zip([2]*3, [1, 2, 3])]
+        conditions += [(1, t, v, h) for (t, v, h) in zip([2]*3, [1, 2, 3], [0]*3)]
         # 3's, 2 versions
-        conditions += [(1, t, v) for (t, v) in zip([3]*2, [1, 2])]
-
+        conditions += [(1, t, v, h) for (t, v, h) in zip([3]*2, [1, 2], [0]*2)]
+        # all opponent hidden pieces
+        conditions += [(1, None, None, 1)]
         # obstacle
-        conditions += [(99, 99, 1)]
+        conditions += [(99, 99, 1, 1)]
 
         return conditions
 

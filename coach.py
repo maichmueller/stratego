@@ -247,7 +247,7 @@ class Coach:
 
 if __name__ == '__main__':
     c = Coach(agent.AlphaZero(0),
-              num_episodes=100,
+              num_episodes=500,
               mcts_simulations=100,
               board_size='small')
-    c.teach(from_prev_examples=True, multiprocess=False)
+    c.teach(from_prev_examples=False, multiprocess=False)
