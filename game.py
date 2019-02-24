@@ -2,7 +2,7 @@ from copy import deepcopy
 
 import numpy as np
 
-from cythonized import utils
+import utils
 import pieces
 from collections import Counter, defaultdict
 

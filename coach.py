@@ -2,29 +2,20 @@ from copy import deepcopy
 from game import Game
 import agent
 import numpy as np
-from matplotlib import pyplot as plt
 
-from cythonized.mcts import MCTS, utils
+from mcts import MCTS
 
-from cythonized.utils import AverageMeter
-from progressBar.progress.bar import Bar
-import time
-from collections import deque, namedtuple
+from collections import namedtuple
 import os
 import sys
 from pickle import Pickler, Unpickler
-from random import shuffle
 from arena import Arena
-import models
 from tqdm.auto import tqdm
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import cpu_count
 
-from torch.multiprocessing import Pool, Process, set_start_method
-from cythonized.utils import GLOBAL_DEVICE
-import torch
-
+from utils import GLOBAL_DEVICE
 
 TrainingTurn = namedtuple('TrainingTurn', 'board pi v player')
 
@@ -105,7 +96,6 @@ class Coach:
                 episode_examples.append(TrainingTurn(deepcopy(state.board),
                                                      pi, None, turn))
 
-
                 state.do_move(move=move)
                 r = state.is_terminal(force=True, turn=0)
             # utils.print_board(state.board)
@@ -154,7 +144,7 @@ class Coach:
                 if multiprocess:
                     pbar = tqdm(total=self.num_episodes)
                     pbar.set_description('Creating self-play training turns')
-                    with ProcessPoolExecutor(max_workers=cpu_count()/2) as executor:
+                    with ProcessPoolExecutor(max_workers=cpu_count()//2) as executor:
                         futures = list(
                             (executor.submit(self.exec_ep,
                                              mcts=MCTS(self.nnet, num_mcts_sims=self.mcts_sims),

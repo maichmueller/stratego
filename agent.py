@@ -1,33 +1,17 @@
-import random
 import numpy as np
-import pieces
 import copy
 # from collections import Counter
 from scipy import spatial
 # from scipy import optimize
-from cythonized import utils
-from cythonized.utils import GLOBAL_DEVICE
-import torch
+import utils
 import models
 
-import argparse
-import os
-import shutil
-import time
 import random
-import math
-import sys
-from game import GameState
-from collections import defaultdict
 
-import argparse
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torchvision import datasets, transforms
 from collections import Counter
 import abc
+from utils import GLOBAL_DEVICE
 
 
 class Agent:
@@ -341,7 +325,7 @@ class Reinforce(Agent, abc.ABC):
         (e.g. Finder only needs his own position, but MiniStratego will need all opponents pieces also)
         :return: (state_dim * 5 * 5) Tensor
         """
-
+        global GLOBAL_DEVICE
         if board is None:
             board = self.board
 

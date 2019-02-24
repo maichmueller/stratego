@@ -1,15 +1,10 @@
-import time
 import math
-import random
 from copy import deepcopy
 import torch
-from collections import defaultdict
 
-from cythonized import utils
+import utils
 
 import numpy as np
-import sys
-from tqdm import tqdm
 
 EPS = 1e-8
 
@@ -121,7 +116,7 @@ class MCTS():
 
         Ps = self.Ps[s]
         if root:
-            dirich_noise = np.random.dirichlet([0.5]*utils.action_rep.action_dim)
+            dirich_noise = np.random.dirichlet([0.5] * utils.action_rep.action_dim)
             Ps = ((1 - 0.25) * Ps + 0.25 * dirich_noise) * valids
             Ps /= Ps.sum()
 

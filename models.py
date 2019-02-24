@@ -5,10 +5,10 @@ import torch.nn.functional as F
 from torch import optim
 import time
 import os
-from cythonized.utils import AverageMeter
+from utils import AverageMeter
 from progressBar.progress.bar import Bar
 from tqdm import tqdm
-from cythonized.utils import GLOBAL_DEVICE
+from utils import GLOBAL_DEVICE
 
 
 class NNetWrapper:

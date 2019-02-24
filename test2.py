@@ -1,7 +1,6 @@
 import game
 import numpy as np
 import pieces
-from cythonized import utils
 import agent
 
 

@@ -1,8 +1,6 @@
 """
 Pieces
 """
-import numpy as np
-from cythonized import utils
 
 
 class Piece:
