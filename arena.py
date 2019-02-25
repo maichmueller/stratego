@@ -73,8 +73,8 @@ class Arena:
         :param show_game: (optional) boolean, whether to show the game or not
         :return: None, writes results to a file named after the agents acting
         """
-        blue_wins = self.WinStats()
-        red_wins = self.WinStats()
+        blue_wins = self.WinStats()  # Agent 0
+        red_wins = self.WinStats()  # Agent 1
 
         game_times_0 = []
         game_times_1 = []
@@ -99,18 +99,18 @@ class Arena:
             while True:
                 game_reward = game_.run_game(show_game)
                 if game_reward != 404:
-                    if game_reward == 1:  # red won by finding flag
+                    if game_reward == 1:  # 0 won by finding flag
                         game_times_0.append(timer() - game_time_s)
-                        red_wins.add_win('flag', game_.move_count)
-                    elif game_reward == 2:  # red won by moves
-                        game_times_0.append(timer() - game_time_s)
-                        red_wins.add_win('moves', game_.move_count)
-                    elif game_reward == -1:  # blue won by finding flag
-                        game_times_1.append(timer() - game_time_s)
                         blue_wins.add_win('flag', game_.move_count)
-                    elif game_reward == -2:  # blue won by moves
-                        game_times_1.append(timer() - game_time_s)
+                    elif game_reward == 2:  # 0 won by moves
+                        game_times_0.append(timer() - game_time_s)
                         blue_wins.add_win('moves', game_.move_count)
+                    elif game_reward == -1:  # 1 won by finding flag
+                        game_times_1.append(timer() - game_time_s)
+                        red_wins.add_win('flag', game_.move_count)
+                    elif game_reward == -2:  # 1 won by moves
+                        game_times_1.append(timer() - game_time_s)
+                        red_wins.add_win('moves', game_.move_count)
                     elif game_reward == 0:
                         blue_wins.add_draw(game_.move_count)
                         red_wins.add_draw(game_.move_count)
@@ -120,7 +120,7 @@ class Arena:
 
             if simu % 10 == 0:
                 print_round_results(simu, num_sims, ag_type_0, ag_type_1,
-                                    red_wins.wins, blue_wins.wins)
+                                    blue_wins.wins, red_wins.wins)
         if save_results:
             write_results(num_sims, ag_type_0, ag_type_1,
                           red_wins, blue_wins,
@@ -130,16 +130,16 @@ class Arena:
         return red_wins.wins, blue_wins.wins, red_wins.draws
 
 
-def print_round_results(i, n, ag_0, ag_1, red_won, blue_won):
+def print_round_results(i, n, ag_0, ag_1, blue_won, red_won):
     red = Fore.RED
     blue = Fore.BLUE
     rs = Style.RESET_ALL
-    ag_0_res = f'Agent 0 ({red}{ag_0}{rs})'.center(30)
-    ag_1_res = f'Agent 1 ({blue}{ag_1}{rs})'.center(30)
+    ag_0_res = f'Agent 0 ({blue}{ag_0}{rs})'.center(30)
+    ag_1_res = f'Agent 1 ({red}{ag_1}{rs})'.center(30)
     draws = i - red_won - blue_won
-    red_won = str(red_won).rjust(4)
-    blue_won = str(blue_won).ljust(4)
-    print(f'\r{f"Game {i}/{n}".center(10)} {ag_0_res} --> {red_won} : {blue_won} <-- {ag_1_res}'
+    red_won = str(red_won).ljust(4)
+    blue_won = str(blue_won).rjust(4)
+    print(f'\r{f"Game {i}/{n}".center(10)} {ag_0_res} --> {blue_won} : {red_won} <-- {ag_1_res}'
           f'\t Draws: {draws}', end='')
 
 

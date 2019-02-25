@@ -115,7 +115,7 @@ class Game:
 
     def run_step(self, move=None, **kwargs):
         turn = self.move_count % 2  # player 1 or player 0
-
+        # print(self.state.board)
         if move is None:
             move = self.agents[turn].decide_move(**kwargs)
 
@@ -145,6 +145,8 @@ class Game:
         # test if game is over
         terminal = self.state.is_terminal(flag_only=True)
         if terminal != 404:  # flag discovered, or draw
+            if terminal > 0:
+                x=3
             return terminal
 
         self.move_count += 1
@@ -294,7 +296,7 @@ class GameState:
         self.terminal_checked = False
         return
 
-    def check_terminal(self, flag_only=False, turn=None):
+    def check_terminal(self, flag_only=False, turn=0):
         if not any(self.dead_pieces):
             flags = sum([piece.team + 1 for piece in self.board.flatten() if piece is not None and piece.type == 0])
             if flags != 3:  # == 3 only if both flag 0 and flag 1 are present
@@ -305,13 +307,11 @@ class GameState:
 
         else:
             if self.dead_pieces[0][0] == 1:
-                self.terminal = 1
-            elif self.dead_pieces[1][0] == 1:
                 self.terminal = -1
+            elif self.dead_pieces[1][0] == 1:
+                self.terminal = 1
 
         if not flag_only:
-            if turn is None:
-                turn = 0
             if not utils.get_poss_moves(self.board, turn):
                 self.terminal = (-1)**(turn+1) * 2  # agent of turn loses by moves
             elif not utils.get_poss_moves(self.board, (turn + 1) % 2):

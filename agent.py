@@ -861,13 +861,13 @@ class MiniMax(Agent):
         return board
 
 
-class Omniscient(MiniMax):
+class OmniscientMiniMax(MiniMax):
     """
     Child of MiniMax agent. This agent is omniscient and thus knows the location and type of each
     piece of the enemy. It then plans by doing a minimax algorithm.
     """
     def __init__(self, team, setup=None, depth=None):
-        super(Omniscient, self).__init__(team=team, setup=setup, depth=depth)
+        super(OmniscientMiniMax, self).__init__(team=team, setup=setup, depth=depth)
 
     def install_board(self, board, reset=False):
         super().install_board(board, reset)
@@ -893,7 +893,7 @@ class Omniscient(MiniMax):
         pass
 
 
-class OmniscientHeuristic(Omniscient):
+class OmniscientHeuristic(OmniscientMiniMax):
     """
     Omniscient Minimax planner, that uses a learned board heuristic as evaluation function.
     """

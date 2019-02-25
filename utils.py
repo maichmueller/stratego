@@ -237,9 +237,9 @@ def print_board(board, same_figure=True, block=False):
             # piece.hidden = False  # omniscient view
 
             if piece.team == 1:
-                color = 'b'  # blue: player 1
+                color = 'r'  # blue: player 1
             elif piece.team == 0:
-                color = 'r'  # red: player 0
+                color = 'b'  # red: player 0
             else:
                 color = 'k'  # black: obstacle
 
@@ -256,7 +256,7 @@ def print_board(board, same_figure=True, block=False):
             # piece type written on marker center
             plt.annotate(str(piece), xy=(pos[1], pos[0]), color='w', size=20, ha="center", va="center")
     # invert y makes numbering more natural; puts agent 1 on bottom, 0 on top !
-    plt.gca().invert_yaxis()
+    # plt.gca().invert_yaxis()
     plt.pause(.5)
     plt.show(block=block)
 

@@ -22,7 +22,7 @@ TrainingTurn = namedtuple('TrainingTurn', 'board pi v player')
 
 class Coach:
     def __init__(self, student, num_iterations=100, num_episodes=100,
-                 num_iters_trainexample_history=100000, win_frac=0.55,
+                 num_iters_trainexample_history=500000, win_frac=0.55,
                  mcts_simulations=100, exploration_rate=100, **kwargs):
         # super().__init__(*args, **kwargs)
 
@@ -104,7 +104,8 @@ class Coach:
                 return [TrainingTurn(board, pi, (-1)**(player != turn) * r, player)
                         for (board, pi, _, player) in episode_examples]
 
-    def teach(self, from_prev_examples=False, multiprocess=False):
+    def teach(self, from_prev_examples=False, load_current_best=False,
+              multiprocess=False, skip_first_self_play=None):
         """
         Performs num_iters iterations with num_episodes episodes of self-play in each
         iteration. After every iteration, it retrains the neural network with
@@ -112,9 +113,9 @@ class Coach:
         It then pits the new neural network against the old one and accepts it
         only if it wins >= updateThreshold fraction of games.
         """
+        checkpoint_found = False
         if from_prev_examples:
             i = 0
-            checkpoint_found = False
             while True:
                 if os.path.isfile(self.model_folder + f'checkpoint_{i}.pth.tar' + ".examples"):
                     checkpoint = f'checkpoint_{i}.pth.tar'
@@ -122,10 +123,13 @@ class Coach:
                     i += 1
                 else:
                     break
-            if checkpoint_found:
-                self.load_train_examples(checkpoint)
-                if os.path.isfile(self.model_folder + f'best.pth.tar'):
-                    self.nnet.load_checkpoint(self.model_folder, f'best.pth.tar')
+        if load_current_best or checkpoint_found:
+            self.load_train_examples(checkpoint)
+            if os.path.isfile(self.model_folder + f'best.pth.tar'):
+                self.nnet.load_checkpoint(self.model_folder, f'best.pth.tar')
+
+        if skip_first_self_play is not None:
+            self.skip_first_self_play = skip_first_self_play
 
         # n_cpu = cpu_count()
 
@@ -135,7 +139,7 @@ class Coach:
             print('\n------ITER ' + str(i) + '------', flush=True)
 
             # examples of the iteration
-            train_examples = []
+            train_examples = [] if not self.skip_first_self_play else self.train_examples
             if not self.skip_first_self_play or i > 1:
                 GLOBAL_DEVICE.to_cpu()
                 self.nnet.to_device()
@@ -162,6 +166,10 @@ class Coach:
                         mcts = MCTS(self.nnet, num_mcts_sims=self.mcts_sims)
                         train_examples.extend(self.exec_ep(mcts, reset_game=True))
 
+            # backup history to a file
+            # NB! the examples were collected using the model from the previous iteration, so (i-1)
+            if not self.skip_first_self_play or i > 0:
+                self.save_train_examples(i - 1)
             # convert the bard to a state rep
             train_exs = []
             for tr_turn in train_examples:
@@ -174,10 +182,7 @@ class Coach:
                 print("len(train_examples_history) =", len(self.train_examples),
                       f" => remove the oldest {diff_hist_len} train_examples")
                 self.train_examples = self.train_examples[diff_hist_len:]
-            # backup history to a file
-            # NB! the examples were collected using the model from the previous iteration, so (i-1)
-            if not self.skip_first_self_play or i > 0:
-                self.save_train_examples(i - 1)
+
 
             # print(self.train_examples)
 
@@ -237,7 +242,7 @@ class Coach:
 
 if __name__ == '__main__':
     c = Coach(agent.AlphaZero(0),
-              num_episodes=500,
+              num_episodes=1000,
               mcts_simulations=100,
               board_size='small')
-    c.teach(from_prev_examples=False, multiprocess=False)
+    c.teach(from_prev_examples=True, load_current_best=True, skip_first_self_play=False, multiprocess=False)
