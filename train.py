@@ -83,7 +83,7 @@ def run_env(env, n_runs=100, show=True):
         won_games = 0
         too_many_steps_games = 0
         while not done:
-            state = env.agents[0].board_to_state()  # for the reinforcement agent convert board to state input
+            state = env.agents[0].state_to_tensor()  # for the reinforcement agent convert board to state input
             action = env.agents[0].select_action(state, 0.00)
             if action is not None:
                 action = action[0, 0]  # action is unwrapped from the LongTensor
@@ -118,7 +118,7 @@ def train(env_, num_episodes):
     best_winratio = 0.5
     for i_episode in range(num_episodes):
             env_.reset()  # initialize environment
-            state = env_.agents[0].board_to_state()  # initialize state
+            state = env_.agents[0].state_to_tensor()  # initialize state
             if (i_episode+1) % 1000 == 0:
                 test_agent0 = agent.Stratego(0)
                 test_agent0.model = copy.deepcopy(agent0.model)
@@ -147,7 +147,7 @@ def train(env_, num_episodes):
                     next_state = None
                     won = 1 if won > 0 else 0
                 else:
-                    next_state = env_.agents[0].board_to_state()
+                    next_state = env_.agents[0].state_to_tensor()
 
                 if move is not None:
                     memory.push(state, action, next_state, reward)  # store the transition in memory

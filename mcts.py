@@ -87,8 +87,8 @@ class MCTS():
         if s not in self.Ps:
             # leaf node
             # print('Leaf node reached.')
-            Ps, v = self.nnet.predict(torch.Tensor(state.state_represent(0)))
-            actions, relation_dict = utils.action_rep.actions, utils.action_rep.act_piece_relation
+            Ps, v = self.nnet.predict(torch.Tensor(state.state_representation(0)))
+            actions, relation_dict = utils.action_rep.actions, utils.action_rep.piecetype_to_actionrange
             actions_mask = utils.get_actions_mask(state.board, 0,
                                                   relation_dict,
                                                   actions)

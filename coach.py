@@ -173,7 +173,7 @@ class Coach:
             # convert the bard to a state rep
             train_exs = []
             for tr_turn in train_examples:
-                train_exs.append(TrainingTurn(self.game.agents[0].board_to_state(tr_turn.board),
+                train_exs.append(TrainingTurn(self.game.agents[0].state_to_tensor(tr_turn.board),
                                               tr_turn.pi, tr_turn.v, tr_turn.player))
             self.train_examples.extend(train_exs)
 
