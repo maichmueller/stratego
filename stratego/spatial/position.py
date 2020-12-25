@@ -1,5 +1,5 @@
 
-class PositionVector:
+class Position:
     def __init__(self, x: int, y: int):
         self.coords = x, y
 
@@ -12,13 +12,16 @@ class PositionVector:
         return self.coords[1]
 
     def __add__(self, other):
-        return PositionVector(self.x + other.x, self.y + other.y)
+        return Position(self.x + other.x, self.y + other.y)
 
     def __mul__(self, val: int):
-        return PositionVector(self.x * val, self.y * val)
+        return Position(self.x * val, self.y * val)
 
     def __sub__(self, other):
         return self + (-other)
+
+    def __neg__(self):
+        return Position(self.x * (-1), self.y * (-1))
 
     def __truediv__(self, val: int):
         return self * (1 // val)
@@ -26,9 +29,12 @@ class PositionVector:
     def __getitem__(self, i: int):
         return self.coords[i]
 
+    def __repr__(self):
+        return str(self.coords)
+
 
 class Move:
-    def __init__(self, pos1: PositionVector, pos2: PositionVector):
+    def __init__(self, pos1: Position, pos2: Position):
         self.from_to = [pos1, pos2]
 
     @property

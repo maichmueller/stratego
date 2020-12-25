@@ -1,9 +1,8 @@
-from agent import RLAgent
+from stratego.agent import RLAgent
 import torch
 import numpy as np
-import models
-import utils
-from utils import GLOBAL_DEVICE
+from stratego import utils, models
+from stratego.utils import GLOBAL_DEVICE
 
 
 class AlphaZero(RLAgent):

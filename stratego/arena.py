@@ -16,9 +16,7 @@
 #
 ##############################################################################
 
-import numpy as np
 import game
-import pieces
 import agent
 from timeit import default_timer as timer
 import re

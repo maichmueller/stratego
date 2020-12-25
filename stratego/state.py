@@ -1,4 +1,7 @@
-from position import *
+from typing import Sequence, Optional
+
+from piece import Piece
+from spatial import Position
 
 import numpy as np
 from collections import defaultdict, Counter
@@ -55,16 +58,16 @@ class State:
 
     def update_board(
         self,
-        positions: Sequence[PositionVector],
+        positions: Sequence[Position],
         pieces: Sequence[Optional[Piece]],
     ):
         """
         Parameters
         ----------
         positions: PositionType,
-            piece board position
+            piece board spatial
         pieces: Piece,
-            the new piece at the position
+            the new piece at the spatial
         """
         for pos, piece in zip(positions, pieces):
             if piece is not None:

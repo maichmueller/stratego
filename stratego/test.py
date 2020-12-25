@@ -1,6 +1,5 @@
 import agent
 import arena
-import os
 
 #g = game.Game(agent.MiniMax(0), agent.Random(1), board_size='small')
 #actions, relation_dict = utils.action_rep.actions, utils.action_rep.act_piece_relation

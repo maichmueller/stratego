@@ -4,8 +4,8 @@ from typing import Tuple, Optional
 import numpy as np
 
 import utils
-import pieces
-from collections import Counter, defaultdict
+import piece
+from collections import defaultdict
 from agent import Agent, RLAgent
 from state import State
 
@@ -106,7 +106,7 @@ class Game:
                     board[piece.position] = deepcopy(piece)
 
         for pos in self.obstacle_positions:
-            obs = pieces.Piece(99, 99, pos)
+            obs = piece.Piece(99, 99, pos)
             obs.hidden = False
             board[pos] = obs
 
@@ -245,7 +245,7 @@ class Game:
                 game_dim - 1 - flag_positions[flag_choice][0],
                 game_dim - 1 - flag_positions[flag_choice][1],
             )
-            setup_agent[flag_pos] = pieces.Piece(0, 0, flag_positions[flag_choice])
+            setup_agent[flag_pos] = piece.Piece(0, 0, flag_positions[flag_choice])
 
             types_draw = np.random.choice(types_available, nr_pieces, replace=False)
             positions_agent_0 = [
@@ -259,11 +259,11 @@ class Game:
                 pos = positions_agent_0[idx]
                 setup_agent[
                     (game_dim - 1 - pos[0], game_dim - 1 - pos[1])
-                ] = pieces.Piece(types_draw[idx], 0, pos)
+                ] = piece.Piece(types_draw[idx], 0, pos)
         elif team == 1:
             flag_positions = [(0, j) for j in range(game_dim)]
             flag_choice = np.random.choice(range(len(flag_positions)), 1)[0]
-            setup_agent[flag_positions[flag_choice]] = pieces.Piece(
+            setup_agent[flag_positions[flag_choice]] = piece.Piece(
                 0, 1, flag_positions[flag_choice]
             )
 
@@ -275,7 +275,7 @@ class Game:
 
             for idx in range(nr_pieces):
                 pos = positions_agent_1[idx]
-                setup_agent[pos] = pieces.Piece(types_draw[idx], 1, pos)
+                setup_agent[pos] = piece.Piece(types_draw[idx], 1, pos)
         return setup_agent
 
     def _update_fight_rewards(self, outcome, turn):

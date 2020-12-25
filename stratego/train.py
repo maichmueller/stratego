@@ -1,16 +1,13 @@
 import math
 import numpy as np
-from matplotlib import pyplot as plt
 
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.autograd import Variable
 
 import agent
 import coach
 import utils
-import pickle
 import copy
 
 # training of DQN network code is adjusted from Adam Paszke

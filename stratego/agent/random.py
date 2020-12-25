@@ -1,4 +1,4 @@
-from agent import Agent
+from stratego.agent import Agent
 
 
 class Random(Agent):

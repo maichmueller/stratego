@@ -1,10 +1,10 @@
-from agent import Agent
+from stratego.agent import Agent
 import numpy as np
 from scipy import spatial
 import torch
 
 import copy
-import utils
+from stratego import utils
 
 
 class MiniMax(Agent):
@@ -61,7 +61,7 @@ class MiniMax(Agent):
         given the maximum depth, copy the known board so far, assign the pieces by random, while still
         respecting the current knowledge, and then decide the move via minimax algorithm.
         :param max_depth: int
-        :return: tuple of position tuples
+        :return: tuple of spatial tuples
         """
         curr_board = copy.deepcopy(self.board)
         curr_board = self.draw_consistent_enemy_setup(curr_board)
@@ -306,7 +306,7 @@ class MiniMax(Agent):
             raise ValueError("No last move to undo detected!")
         before_piece = self.pieces_last_N_Moves_beforePos.pop()
         board[last_move[0]] = before_piece
-        # the piece at the 'before' position was the one that moved, so needs its
+        # the piece at the 'before' spatial was the one that moved, so needs its
         # last entry in the move history deleted
         before_piece.position = last_move[0]
         board[last_move[1]] = self.pieces_last_N_Moves_afterPos.pop()
@@ -406,7 +406,7 @@ class MonteCarlo(MiniMax):
         """
         given the maximum depth, copy the known board so far, assign the pieces by random, while still
         respecting the current knowledge, and then decide the move via minimax algorithm.
-        :return: tuple of position tuples
+        :return: tuple of spatial tuples
         """
         possible_moves = utils.get_poss_moves(self.board, self.team)
         next_action = None
@@ -527,7 +527,7 @@ class MonteCarloHeuristic(MonteCarlo):
         """
         given the maximum depth, copy the known board so far, assign the pieces by random, while still
         respecting the current knowledge, and then decide the move via minimax algorithm.
-        :return: tuple of position tuples
+        :return: tuple of spatial tuples
         """
         possible_moves = utils.get_poss_moves(self.board, self.team)
         next_action = None

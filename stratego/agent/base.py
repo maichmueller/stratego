@@ -5,15 +5,10 @@ import copy
 from scipy import spatial
 
 # from scipy import optimize
-import utils
-import models
-
-import random
 
 import torch
 from collections import Counter
 import abc
-from utils import GLOBAL_DEVICE
 
 
 class Agent:
@@ -28,7 +23,7 @@ class Agent:
     def decide_move(self, state, logic, *args, **kwargs):
         """
         Implementation of the agent's move for the current round
-        :return: tuple of "from" position tuple to "to" position tuple representing the move
+        :return: tuple of "from" spatial tuple to "to" spatial tuple representing the move
         """
         raise NotImplementedError
 

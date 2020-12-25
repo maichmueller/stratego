@@ -1,8 +1,11 @@
 .idea/*
 __pycache__/*
+    
 
-cythonized/__pycache__/*
 .DS_Store
-reinforce/__pycache__/*
-reinforce/.DS_Store
+
+
 checkpoints/*
+**/__pycache__/
+
+

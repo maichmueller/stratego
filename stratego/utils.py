@@ -36,59 +36,59 @@ class Singleton(type):
             cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
         return cls._instances[cls]
 
-
-class ActionRep:
-    def __init__(self):
-        self.actors = None
-        self.actions = None
-        self.act_piece_relation = None
-        self.action_dim = None
-        self.game_dim = GameDef.get_game_specs()[2]
-        self.build_action_rep()
-
-    def build_action_rep(self, force=False):
-        if force or any(
-            [x is None for x in (self.actors, self.actions, self.act_piece_relation)]
-        ):
-            action_rep_pieces = []
-            action_rep_moves = []
-            action_rep_dict = dict()
-            for type_ in sorted(GameDef.get_game_specs()[1]):
-                version = 1
-                type_v = str(type_) + "_" + str(version)
-                while type_v in action_rep_pieces:
-                    version += 1
-                    type_v = type_v[:-1] + str(version)
-                if type_ in [0, 11]:
-                    continue
-                elif type_ == 2:
-                    actions = (
-                        [(i, 0) for i in range(1, self.game_dim)]
-                        + [(0, i) for i in range(1, self.game_dim)]
-                        + [(-i, 0) for i in range(1, self.game_dim)]
-                        + [(0, -i) for i in range(1, self.game_dim)]
-                    )
-                    len_acts = len(actions)
-                    len_acts_sofar = len(action_rep_moves)
-                    action_rep_dict[type_v] = list(
-                        range(len_acts_sofar, len_acts_sofar + len_acts)
-                    )
-                    action_rep_pieces += [type_v] * len_acts
-                    action_rep_moves += actions
-                else:
-                    actions = [(1, 0), (0, 1), (-1, 0), (0, -1)]
-                    action_rep_dict[type_v] = list(
-                        range(len(action_rep_moves), len(action_rep_moves) + 4)
-                    )
-                    action_rep_pieces += [type_v] * 4
-                    action_rep_moves += actions
-            self.act_piece_relation = action_rep_dict
-            self.actions = tuple(action_rep_moves)
-            self.actors = tuple(action_rep_pieces)
-            self.action_dim = len(action_rep_moves)
-
-
-action_rep = ActionRep()
+#
+# class ActionRep:
+#     def __init__(self):
+#         self.actors = None
+#         self.actions = None
+#         self.act_piece_relation = None
+#         self.action_dim = None
+#         self.game_dim = GameDef.get_game_specs()[2]
+#         self.build_action_rep()
+#
+#     def build_action_rep(self, force=False):
+#         if force or any(
+#             [x is None for x in (self.actors, self.actions, self.act_piece_relation)]
+#         ):
+#             action_rep_pieces = []
+#             action_rep_moves = []
+#             action_rep_dict = dict()
+#             for type_ in sorted(GameDef.get_game_specs()[1]):
+#                 version = 1
+#                 type_v = str(type_) + "_" + str(version)
+#                 while type_v in action_rep_pieces:
+#                     version += 1
+#                     type_v = type_v[:-1] + str(version)
+#                 if type_ in [0, 11]:
+#                     continue
+#                 elif type_ == 2:
+#                     actions = (
+#                         [(i, 0) for i in range(1, self.game_dim)]
+#                         + [(0, i) for i in range(1, self.game_dim)]
+#                         + [(-i, 0) for i in range(1, self.game_dim)]
+#                         + [(0, -i) for i in range(1, self.game_dim)]
+#                     )
+#                     len_acts = len(actions)
+#                     len_acts_sofar = len(action_rep_moves)
+#                     action_rep_dict[type_v] = list(
+#                         range(len_acts_sofar, len_acts_sofar + len_acts)
+#                     )
+#                     action_rep_pieces += [type_v] * len_acts
+#                     action_rep_moves += actions
+#                 else:
+#                     actions = [(1, 0), (0, 1), (-1, 0), (0, -1)]
+#                     action_rep_dict[type_v] = list(
+#                         range(len(action_rep_moves), len(action_rep_moves) + 4)
+#                     )
+#                     action_rep_pieces += [type_v] * 4
+#                     action_rep_moves += actions
+#             self.act_piece_relation = action_rep_dict
+#             self.actions = tuple(action_rep_moves)
+#             self.actors = tuple(action_rep_pieces)
+#             self.action_dim = len(action_rep_moves)
+#
+#
+# action_rep = ActionRep()
 
 
 def get_actions_mask(board, team, action_rep_dict, action_rep_moves):
@@ -100,7 +100,7 @@ def get_actions_mask(board, team, action_rep_dict, action_rep_moves):
     for pos, piece in np.ndenumerate(board):
         if (
             piece is not None and piece.team == team and piece.can_move
-        ):  # board position has a piece on it
+        ):  # board spatial has a piece on it
             # get the index range of this piece in the moves list
             p_range = np.array(
                 action_rep_dict[str(piece.type) + "_" + str(piece.version)]
@@ -176,7 +176,7 @@ def print_board(board, same_figure=True, block=False):
 
     # go through all board positions and print the respective markers
     for pos in ((i, j) for i in range(game_dim) for j in range(game_dim)):
-        piece = board[pos]  # select piece on respective board position
+        piece = board[pos]  # select piece on respective board spatial
         # decide which marker type to use for piece
         if piece is not None:
             # piece.hidden = False  # omniscient view
@@ -382,7 +382,7 @@ def visualize_features(n_points, environment, env_name):
         print(X_tsne[c])
         print(state_values[c])
         print_board(boards[c], same_figure=False)
-        # plt.title("state value: {}, position: {}".format(state_values[c], X_tsne[c]))
+        # plt.title("state value: {}, spatial: {}".format(state_values[c], X_tsne[c]))
         plt.savefig("{}{}.png".format(env_name, i))
 
     def plot_embedding(features, values, choice):
