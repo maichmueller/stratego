@@ -122,8 +122,8 @@ class AlphaZero(RLAgent):
         for piece in self.board.flatten():
             if (
                 piece is not None
-                and piece.type == type_
-                and piece.version == version
+                and int == type_
+                and int == version
                 and piece.team == team
             ):
                 wanted_piece = piece
@@ -183,3 +183,16 @@ class AlphaZero(RLAgent):
 
         return conditions
 
+
+class OmniscientStratego(AlphaZero):
+    def __init__(self, team):
+        super().__init__(team)
+
+    def decide_move(self):
+        state = self.state_to_tensor()
+        action = self.select_action(state)
+        if action is not None:
+            move = self.action_to_move(action)
+        else:
+            return None
+        return move

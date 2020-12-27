@@ -8,7 +8,10 @@ from scipy import spatial
 
 import torch
 from collections import Counter
-import abc
+from abc import ABC
+from stratego.action import ActionMap
+
+from stratego.state import State
 
 
 class Agent:
@@ -20,7 +23,7 @@ class Agent:
         self.team = team
         self.other_team = (self.team + 1) % 2
 
-    def decide_move(self, state, logic, *args, **kwargs):
+    def decide_move(self, state, *args, **kwargs):
         """
         Implementation of the agent's move for the current round
         :return: tuple of "from" spatial tuple to "to" spatial tuple representing the move
@@ -28,32 +31,35 @@ class Agent:
         raise NotImplementedError
 
 
-
-class RLAgent(Agent, abc.ABC):
+class RLAgent(Agent, ABC):
     """
     Agent approximating action-value functions with an artificial neural network
     trained with Q-learning
     """
 
-    def __init__(self, team, setup=None):
-        super(RLAgent, self).__init__(team=team, setup=setup)
+    def __init__(self, team, action_map: ActionMap):
+        super(RLAgent, self).__init__(team=team)
         self.state_dim = None
         self.action_dim = None
         self.model = None
-        self.actors = None
-        self.actions = None
-        self.relation_dict = None
+        self.action_map = None
         self.reward = 0
 
-    def decide_move(self, state):
-        board = self.draw_consistent_enemy_setup(copy.deepcopy(self.board))
-        state = self.state_to_tensor(board)
-        action = self.select_action(state)
-        if action is not None:
-            move = self.action_to_move(action)
-        else:
-            return None
-        return move
+    def decide_move(self, state, *args, **kwargs):
+        """
+        Parameters
+        ----------
+        state: State,
+            the state on which the decision is to be made.
+        args: ignored
+        kwargs: ignored
+
+        Returns
+        -------
+        Move,
+            the chosen move to make on the state.
+        """
+        raise NotImplementedError
 
     def state_representation(self, player):
         """
@@ -65,24 +71,6 @@ class RLAgent(Agent, abc.ABC):
             the player from whose view the state is to be represented
         """
         return NotImplementedError
-
-    def set_action_rep(self, actors, actions, relation_dict):
-        """
-        Install the action representation given by the game.
-        """
-        self.actors = []
-        for actor, count in Counter(actors).items():
-            type_, version = list(map(int, actor.split("_")))
-            for piece in self.board.flatten():
-                if (
-                    piece is not None
-                    and piece.type == type_
-                    and piece.version == version
-                ):
-                    self.actors += [piece] * count
-
-        self.actions = actions
-        self.relation_dict = relation_dict
 
     def select_action(self, state):
 
@@ -124,8 +112,8 @@ class RLAgent(Agent, abc.ABC):
                 # if it's about team 0, the 'hidden' status is unimportant
                 return 1 * (
                     piece.team == team
-                    and piece.type == type_
-                    and piece.version == version
+                    and int == type_
+                    and int == version
                 )
             else:
                 # hidden is only important for the single layer that checks for
@@ -141,8 +129,8 @@ class RLAgent(Agent, abc.ABC):
                 else:
                     return 1 * (
                         piece.team == team
-                        and piece.type == type_
-                        and piece.version == version
+                        and int == type_
+                        and int == version
                     )
             else:
                 return 1 * (piece.team == team and piece.hidden)
@@ -164,7 +152,7 @@ class RLAgent(Agent, abc.ABC):
         :param enemy_piece: object of class Piece
         :return: change is in-place, no value specified
         """
-        enemy_piece.potential_types = [enemy_piece.type]
+        enemy_piece.potential_types = [enemy_int]
 
     def update_prob_by_move(self, move, moving_piece):
         """
@@ -176,7 +164,7 @@ class RLAgent(Agent, abc.ABC):
         move_dist = spatial.distance.cityblock(move[0], move[1])
         if move_dist > 1:
             moving_piece.hidden = False
-            moving_piece.potential_types = [moving_piece.type]  # piece is 2
+            moving_piece.potential_types = [moving_int]  # piece is 2
         else:
             immobile_enemy_types = [
                 idx
@@ -198,7 +186,7 @@ class RLAgent(Agent, abc.ABC):
         # get information about enemy pieces (how many, which alive, which types, and indices in assign. array)
         enemy_pieces = copy.deepcopy(self.ordered_opp_pieces)
         enemy_pieces_alive = [piece for piece in enemy_pieces if not piece.dead]
-        types_alive = [piece.type for piece in enemy_pieces_alive]
+        types_alive = [int for piece in enemy_pieces_alive]
 
         # do the following as long as the drawn assignment is not consistent with the current knowledge about them
         consistent = False
@@ -217,11 +205,11 @@ class RLAgent(Agent, abc.ABC):
         for idx, piece in enumerate(enemy_pieces_alive):
             # add attribute of the piece being guessed (only happens in non-real gameplay aka planning)
             piece.guessed = not piece.hidden
-            piece.type = sample[idx]
-            if piece.type in [0, 11]:
+            int = sample[idx]
+            if int in [0, 11]:
                 piece.can_move = False
                 piece.move_radius = 0
-            elif piece.type == 2:
+            elif int == 2:
                 piece.can_move = True
                 piece.move_radius = float("inf")
             else:
@@ -231,17 +219,4 @@ class RLAgent(Agent, abc.ABC):
             board[piece.position] = piece
         return board
 
-
-class OmniscientStratego(AlphaZero):
-    def __init__(self, team):
-        super().__init__(team)
-
-    def decide_move(self):
-        state = self.state_to_tensor()
-        action = self.select_action(state)
-        if action is not None:
-            move = self.action_to_move(action)
-        else:
-            return None
-        return move
 

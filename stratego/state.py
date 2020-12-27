@@ -1,15 +1,20 @@
-from typing import Sequence, Optional
+from typing import Sequence, Optional, Tuple, Dict
 
-from piece import Piece
-from spatial import Position
+from .game_defs import Status
+from .piece import Piece
+from .spatial import Position, Board
 
 import numpy as np
 from collections import defaultdict, Counter
-import utils
 
 
 class State:
-    def __init__(self, board=None, dead_pieces=None, move_count=None):
+    def __init__(
+        self,
+        board: Board,
+        move_count: int = 0,
+        dead_pieces: Dict[int, Dict[int, int]] = None,
+    ):
 
         self.obstacle_positions = None
         if dead_pieces is not None:
@@ -19,36 +24,17 @@ class State:
         self.board = board
         self.game_dim = board.shape[0]
 
-        self.act_piece_relation = None
-        self.actions = None
-        self.actors = None
-        self.action_dim = None
-        self.actors_desc_relation = None
-        self.action_dim = None
-        self.actors_desc_relation = None
-
         self.canonical_teams = True
 
         self.move_count = move_count
-        self.max_nr_turns = 500
 
-        self.terminal = 404
+        self.terminal = Status.ongoing
         self.terminal_checked = True
 
-        self.dead_pieces = dict()
-        pieces0, pieces1 = defaultdict(int), defaultdict(int)
-        for piece in board.flatten():
-            if piece is not None:
-                if piece.team:
-                    pieces1[piece.type] += 1
-                else:
-                    pieces0[piece.type] += 1
-
-        for pcs, team in zip((pieces0, pieces0), (0, 1)):
-            dead_pieces_dict = dict()
-            for type_, freq in Counter(utils.GameDef.get_game_specs()[1]).items():
-                dead_pieces_dict[type_] = freq - pcs[type_]
-            self.dead_pieces[team] = dead_pieces_dict
+        if dead_pieces is not None:
+            self.dead_pieces = dead_pieces
+        else:
+            self.dead_pieces = dict()
 
     def __str__(self):
         return np.array_repr(self.board)
@@ -81,11 +67,7 @@ class State:
         if team == 0:
             if not hidden:
                 # if it's about team 0, the 'hidden' status is unimportant
-                return 1 * (
-                    piece.team == team
-                    and piece.type == type_
-                    and piece.version == version
-                )
+                return 1 * (piece.team == team and int == type_ and int == version)
             else:
                 # hidden is only important for the single layer that checks for
                 # only this quality!
@@ -98,11 +80,7 @@ class State:
                 if piece.hidden:
                     return 0
                 else:
-                    return 1 * (
-                        piece.team == team
-                        and piece.type == type_
-                        and piece.version == version
-                    )
+                    return 1 * (piece.team == team and int == type_ and int == version)
             else:
                 return 1 * (piece.team == team and piece.hidden)
         else:
@@ -129,3 +107,29 @@ class State:
                 if piece is not None and piece.team != 99:
                     piece.team ^= 1
                     piece.position = pos
+
+    def check_status(self, flag_only=False, turn=0):
+        if not any(self.dead_pieces):
+            flags = sum([piece.team + 1 for piece in self.board.flatten() if piece is not None and piece.type == 0])
+            if flags != 3:  # == 3 only if both flag 0 and flag 1 are present
+                if flags == 1:  # agent 1 flag has been captured
+                    self.terminal = 1  # agent 0 wins by flag
+                else:
+                    self.terminal = -1  # agent 1 wins by flag
+
+        else:
+            if self.dead_pieces[0][0] == 1:
+                self.terminal = -1
+            elif self.dead_pieces[1][0] == 1:
+                self.terminal = 1
+
+        if not flag_only:
+            if not Logic.get_poss_moves(self.board, turn):
+                self.terminal = (-1) ** (turn + 1) * 2  # agent of turn loses by moves
+            elif not utils.get_poss_moves(self.board, (turn + 1) % 2):
+                self.terminal = (-1) ** turn * 2  # agent of turn wins by moves
+
+        if self.move_count is not None and self.move_count > self.max_nr_turns:
+            self.terminal = 0
+
+        self.terminal_checked = True

@@ -1,4 +1,9 @@
 from stratego.agent import Agent
+from stratego import Logic
+
+import numpy as np
+
+from stratego.state import State
 
 
 class Random(Agent):
@@ -6,13 +11,12 @@ class Random(Agent):
     Agent who chooses his actions at random
     """
 
-    def __init__(self, team, setup=None):
-        super(Random, self).__init__(team=team, setup=setup)
+    def __init__(self, team):
+        super(Random, self).__init__(team=team)
 
-
-    def decide_move(self, state: State, judge: Judge):
-        actions = utils.all_possible_moves(state.board, self.team)
-        if not actions:
+    def decide_move(self, state: State, *args, **kwargs):
+        all_moves = list(Logic.possible_moves_iter(state.board, self.team))
+        if not all_moves:
             return None
         else:
-            return random.choice(actions)
+            return np.random.choice(all_moves)

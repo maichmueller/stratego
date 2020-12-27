@@ -1,6 +1,21 @@
+from __future__ import annotations
+from functools import singledispatchmethod
+from typing import Sequence, Union, Tuple, List
+
 
 class Position:
-    def __init__(self, x: int, y: int):
+    @singledispatchmethod
+    def __init__(self, _):
+        raise NotImplementedError
+
+    @__init__.register(tuple)
+    @__init__.register(list)
+    def _(self, pos: Union[Tuple[int], List[int]]):
+        assert len(pos) == 2, "Position sequence must have length 2."
+        self.coords = pos
+
+    @__init__.register(int)
+    def _(self, x: int, y: int):
         self.coords = x, y
 
     @property
@@ -33,9 +48,14 @@ class Position:
         return str(self.coords)
 
 
+@Position.__init__.register(Position)
+def _(self, pos: Position):
+    self.coords = pos.x, pos.y
+
+
 class Move:
     def __init__(self, pos1: Position, pos2: Position):
-        self.from_to = [pos1, pos2]
+        self.from_to = (pos1, pos2)
 
     @property
     def from_(self):

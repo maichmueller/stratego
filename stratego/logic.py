@@ -1,15 +1,17 @@
-from utils import Singleton
-from state import State
-from piece import Piece
-from spatial import Position, Move
+from .game_defs import Status, MAX_NR_TURNS
+from .utils import Singleton
+from .state import State
+from .piece import Piece
+from .spatial import Position, Move, Board
 
-from typing import *
+from typing import Sequence, Dict, Tuple, Optional, Iterator
 from scipy import spatial
 import numpy as np
+from collections import Counter, defaultdict
 
 
-def create_battlematrix():
-    bm: Dict[Tuple[Piece.Type, Piece.Type], int] = dict()
+def create_battle_matrix():
+    bm: Dict[Tuple[int, int], int] = dict()
     for i in range(1, 11):
         for j in range(1, 11):
             if i < j:
@@ -28,7 +30,7 @@ def create_battlematrix():
 
 class BattleMatrix(metaclass=Singleton):
 
-    matrix: Dict[Tuple[Piece.Type, Piece.Type], int] = create_battlematrix()
+    matrix: Dict[Tuple[int, int], int] = create_battle_matrix()
 
     def __class_getitem__(cls, piece_att: Piece, piece_def: Piece):
         return cls.matrix[piece_att.type, piece_def.type]
@@ -39,15 +41,14 @@ class Logic(metaclass=Singleton):
     four_adjacency = np.array([(1, 0), (-1, 0), (0, 1), (0, -1)], dtype=int)
 
     @staticmethod
-    def do_move(state: State, move: Move):
+    def do_move(state: State, move: Move) -> Optional[int]:
         """
+        Execute the move on the provided state.
 
         Parameters
         ----------
-        state: State,
-            the state on which to execute the move
-        move: MoveType,
-            the move to execute
+        state: State
+        move: MoveType
 
         Returns
         -------
@@ -94,7 +95,7 @@ class Logic(metaclass=Singleton):
         return fight_outcome
 
     @staticmethod
-    def is_terminal(state: State, force=False, **kwargs):
+    def get_status(state: State, force=False, **kwargs):
         if force or not state.terminal_checked:
             Logic.check_terminal(state, **kwargs)
         return state.terminal
@@ -106,7 +107,7 @@ class Logic(metaclass=Singleton):
                 [
                     piece.team + 1
                     for piece in state.board.flatten()
-                    if piece is not None and piece.type == 0
+                    if piece is not None and int == 0
                 ]
             )
             if flags != 3:  # == 3 only if both flag 0 and flag 1 are present
@@ -121,19 +122,24 @@ class Logic(metaclass=Singleton):
             elif state.dead_pieces[1][0] == 1:
                 state.terminal = 1
 
-        if not flag_only:
-            if not Logic.all_possible_moves(state.board, turn):
-                state.terminal = (-1) ** (turn + 1) * 2  # agent of turn loses by moves
-            elif not Logic.all_possible_moves(state.board, (turn + 1) % 2):
-                state.terminal = (-1) ** turn * 2  # agent of turn wins by moves
+        if not flag_only and (
+            not all(
+                move is None for move in Logic.possible_moves_iter(state.board, turn)
+            )
+            or not all(
+                move is None
+                for move in Logic.possible_moves_iter(state.board, (turn + 1) % 2)
+            )
+        ):
+            return Status.draw
 
-        if state.move_count is not None and state.move_count > state.max_nr_turns:
+        if state.move_count is not None and state.move_count > MAX_NR_TURNS:
             state.terminal = 0
 
         state.terminal_checked = True
 
     @staticmethod
-    def is_legal_move(board: np.ndarray, move_to_check: Move):
+    def is_legal_move(board: Board, move_to_check: Move):
         """
 
         Parameters
@@ -148,14 +154,14 @@ class Logic(metaclass=Singleton):
         """
         if move_to_check is None:
             return False
-        pos_before = move_to_check[0].coords
-        pos_after = move_to_check[1].coords
+        pos_before = move_to_check[0]
+        pos_after = move_to_check[1]
 
         for x in (pos_before[0], pos_before[1], pos_after[0], pos_after[1]):
             if not -1 < x < board.shape[0]:
                 return False
 
-        # piece to move is not at this spatial
+        # piece to move is not at this position
         if board[pos_before] is None:
             return False
 
@@ -183,23 +189,40 @@ class Logic(metaclass=Singleton):
         return True
 
     @staticmethod
-    def all_possible_moves(board: np.ndarray, team: int):
+    def possible_moves_iter(board: Board, player: int) -> Iterator[Move]:
         """
         Returns
         -------
-        List,
-            possible actions for agent of team 'team'
+        Iterator,
+            lazily iterates over all possible moves of the player.
         """
         game_dim = board.shape[0]
-        actions_possible = []
         for pos, piece in np.ndenumerate(board):
-            if piece is not None and piece.tema == team and piece.can_move:
-                # board spatial has a movable piece of your team on it
+            if piece is not None and piece.team == player and piece.can_move:
+                # board position has a movable piece of your team on it
                 for pos_to in Logic.moves_iter(piece.type, pos, game_dim):
                     move = Move(pos, pos_to)
                     if Logic.is_legal_move(board, move):
-                        actions_possible.append(move)
-        return actions_possible
+                        yield move
+
+    @staticmethod
+    def compute_dead_pieces(board: Board, types_available: Sequence[int]):
+        pieces0, pieces1 = defaultdict(int), defaultdict(int)
+
+        for piece in board.flatten():
+            if piece is not None:
+                if piece.team:
+                    pieces1[piece.type] += 1
+                else:
+                    pieces0[piece.type] += 1
+
+        dead_pieces = dict()
+        for pcs, team in zip((pieces0, pieces0), (0, 1)):
+            dead_pieces_dict = dict()
+            for type_, freq in Counter(types_available).items():
+                dead_pieces_dict[type_] = freq - pcs[type_]
+            dead_pieces[team] = dead_pieces_dict
+        return dead_pieces
 
     @staticmethod
     def moves_iter(

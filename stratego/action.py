@@ -1,17 +1,15 @@
-from spatial import Position
-from logic import Logic
-from piece import Piece
+from .spatial import Position, Move
+from .logic import Logic
+from .piece import Piece
 
 from typing import Sequence, Tuple, Dict, Union, List
 from functools import singledispatchmethod
 import numpy as np
 
-from stratego.spatial import Move
-
 
 class Action:
     def __init__(
-        self, actor: Union[Tuple[Piece.Type, Piece.Version], Piece], effect: Position
+        self, actor: Union[Tuple[int, int], Piece], effect: Position
     ):
         if isinstance(actor, tuple):
             self.actor = actor
@@ -32,7 +30,7 @@ class Action:
 
 
 class ActionMap:
-    def __init__(self, all_types: Sequence[Piece.Type], game_dim: int):
+    def __init__(self, all_types: Sequence[int], game_dim: int):
         self.game_dim = game_dim
         self.actions, self.actions_inverse = self._build_action_map(all_types)
         self.action_dim = len(self.actions)
@@ -55,7 +53,7 @@ class ActionMap:
 
     def _build_action_map(self, available_types: Sequence[int]):
         actions: List[Action] = []
-        actions_inverse: Dict[Tuple[Piece.Type, Piece.Version], List[int]] = dict()
+        actions_inverse: Dict[Tuple[int, int], List[int]] = dict()
         for type_ in sorted(available_types):
             if type_ in [0, 11]:
                 continue
@@ -102,10 +100,3 @@ class ActionMap:
                     if Logic.is_legal_move(board, Move(pos, action(pos))):
                         actions_mask[action_idx] = 1
         return actions_mask
-
-
-if __name__ == "__main__":
-    a = ActionMap([0, 1, 2, 2, 2, 3, 3, 10, 11, 11], 5)
-    board = np.empty((5, 5), dtype=object)
-    board[2, 2] = Piece(2, 1, Position(2, 2))
-    print(a.actions_mask(board, 1))

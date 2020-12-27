@@ -180,7 +180,7 @@ class MiniMax(Agent):
         """
         flag_alive = [False, False]
         for pos, piece in np.ndenumerate(board):
-            if piece is not None and piece.type == 0:
+            if piece is not None and int == 0:
                 flag_alive[piece.team] = True
         if not flag_alive[self.other_team]:
             return True, True
@@ -228,7 +228,7 @@ class MiniMax(Agent):
         :param enemy_piece: object of class Piece
         :return: change is in-place, no value specified
         """
-        enemy_piece.potential_types = [enemy_piece.type]
+        enemy_piece.potential_types = [enemy_int]
 
     def update_prob_by_move(self, move, moving_piece):
         """
@@ -240,7 +240,7 @@ class MiniMax(Agent):
         move_dist = spatial.distance.cityblock(move[0], move[1])
         if move_dist > 1:
             moving_piece.hidden = False
-            moving_piece.potential_types = [moving_piece.type]  # piece is 2
+            moving_piece.potential_types = [moving_int]  # piece is 2
         else:
             immobile_enemy_types = [
                 idx
@@ -262,7 +262,7 @@ class MiniMax(Agent):
         # get information about enemy pieces (how many, which alive, which types, and indices in assign. array)
         enemy_pieces = copy.deepcopy(self.ordered_opp_pieces)
         enemy_pieces_alive = [piece for piece in enemy_pieces if not piece.dead]
-        types_alive = [piece.type for piece in enemy_pieces_alive]
+        types_alive = [int for piece in enemy_pieces_alive]
 
         # do the following as long as the drawn assignment is not consistent with the current knowledge about them
         consistent = False
@@ -281,11 +281,11 @@ class MiniMax(Agent):
         for idx, piece in enumerate(enemy_pieces_alive):
             # add attribute of the piece being guessed (only happens in non-real gameplay aka planning)
             piece.guessed = not piece.hidden
-            piece.type = sample[idx]
-            if piece.type in [0, 11]:
+            int = sample[idx]
+            if int in [0, 11]:
                 piece.can_move = False
                 piece.move_radius = 0
-            elif piece.type == 2:
+            elif int == 2:
                 piece.can_move = True
                 piece.move_radius = float("inf")
             else:
@@ -490,7 +490,7 @@ class MonteCarlo(MiniMax):
         # if board is not None:
         flag_alive = [False, False]
         for pos, piece in np.ndenumerate(board):
-            if piece is not None and piece.type == 0:
+            if piece is not None and int == 0:
                 flag_alive[piece.team] = True
         if not flag_alive[self.other_team]:
             return True, True

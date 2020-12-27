@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from spatial import Position
+from .spatial import Position
 from typing import *
 
 
@@ -8,15 +8,12 @@ class Piece:
     # 0: flag, 11: bomb, 88: unknown, 99: obstacle
     _all_types = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 99)
 
-    Type = NewType("Type", int)
-    Version = NewType("Version", int)
-
-    def __init__(self, type_: Type, team: int, position: Position, version: Version = 1):
+    def __init__(self, type_: int, team: int, position: Position, version: int = 1):
         self.position = position
         self.version = version
         self.dead = False
         self.hidden = True
-        assert type_ in Piece._all_types
+        assert type_ in Piece._all_types, f"Piece type has to be one of {Piece._all_types}."
         self.type = type_
         assert (
             team == 0 or team == 1 or team == 99
@@ -46,9 +43,9 @@ class Piece:
         self.position = new_pos
         self.has_moved = True
 
-    def simile(self, other_piece: Piece) -> bool:
+    def similar(self, other_piece: Piece) -> bool:
         """
-        Return boolean indiciating whether the passed piece is similar to this one.
+        Return boolean indicating whether the passed piece is similar to this one.
         Similar is defined as same piece type and same version
         Parameters
         ----------
@@ -60,4 +57,4 @@ class Piece:
         bool,
             is the other piece similar to this one.
         """
-        return other_piece.type == self.type and other_piece.version == self.version
+        return other_piece == self.type and other_piece == self.version

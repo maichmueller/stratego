@@ -77,7 +77,7 @@ class MCTS():
         s = str(state)
 
         if s not in self.Es:
-            self.Es[s] = state.is_terminal()
+            self.Es[s] = state.get_status()
         elif state.move_count > state.max_nr_turns:
             return 0
         if self.Es[s] != 404:
@@ -134,7 +134,7 @@ class MCTS():
         a = best_action
         move = state.action_to_move(a, 0, force=True)
 
-        state.do_move(move)
+        state.commit_move(move)
 
         v = self.search(state, (player + 1) % 2, root=False)
 
