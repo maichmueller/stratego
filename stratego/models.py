@@ -13,9 +13,9 @@ from utils import GLOBAL_DEVICE
 
 class NNetWrapper:
 
-    def __init__(self, nnet, game_dim, action_dim):
+    def __init__(self, nnet, game_size, action_dim):
         self.nnet = nnet
-        self.board_x, self.board_y = game_dim, game_dim
+        self.board_x, self.board_y = game_size, game_size
         self.action_size = action_dim
 
     def to_device(self):
@@ -223,7 +223,7 @@ class NNLinear(nn.Module):
 
 class ELaborateConvFC(nn.Module):
 
-    def __init__(self, game_dim, channels_in, filter_amounts, d_in, d_out, nr_lin_layers,
+    def __init__(self, game_size, channels_in, filter_amounts, d_in, d_out, nr_lin_layers,
                  kernel_sizes=None, maxpool_layer_pos=None, dropout_prob_per_layer=None,
                  start_layer_exponent=8,
                  activation_function=nn.ReLU()):
@@ -239,7 +239,7 @@ class ELaborateConvFC(nn.Module):
         self.action_value_layer = nn.Linear(in_features=out_features, out_features=self.fc_net.D_out)
         self.board_value_layer = nn.Linear(in_features=out_features,
                                            out_features=1)
-        self.game_dim = game_dim
+        self.game_size = game_size
 
     def extract_features(self, x):
         x = x.to(GLOBAL_DEVICE.device)

@@ -83,7 +83,7 @@ class Coach:
             # utils.print_board(self.game.state.board)
             expl_rate = int(ep_step < self.temp_thresh)
 
-            turn = state.move_count % 2
+            turn = state.move_counter % 2
 
             pi = mcts.get_action_prob(state, player=turn, expl_rate=expl_rate)
             if isinstance(pi, int):

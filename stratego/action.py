@@ -30,8 +30,8 @@ class Action:
 
 
 class ActionMap:
-    def __init__(self, all_types: Sequence[int], game_dim: int):
-        self.game_dim = game_dim
+    def __init__(self, all_types: Sequence[int], game_size: int):
+        self.game_size = game_size
         self.actions, self.actions_inverse = self._build_action_map(all_types)
         self.action_dim = len(self.actions)
 
@@ -70,7 +70,7 @@ class ActionMap:
 
             effects = list(
                 Logic.moves_iter(
-                    type_, Position(0, 0), self.game_dim, stops=[self.game_dim] * 4
+                    type_, Position(0, 0), self.game_size, stops=[self.game_size] * 4
                 )
             )
             for effect in effects:

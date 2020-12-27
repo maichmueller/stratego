@@ -32,7 +32,7 @@ class Board(np.ndarray):
         block: bool (def: false),
             whether to block any further execution after plotting.
         """
-        game_dim = self.shape[0]
+        game_size = self.shape[0]
         # plt.interactive(False)  # make plot stay? true: close plot, false: keep plot
         if figure is None:
             figure = plt.Figure(42000)
@@ -40,23 +40,23 @@ class Board(np.ndarray):
             ax = figure.subplots(1, 1)
 
         ax.clf()
-        # layout = np.add.outer(range(game_dim), range(game_dim)) % 2  # chess-pattern board
-        layout = np.zeros((game_dim, game_dim))
+        # layout = np.add.outer(range(game_size), range(game_size)) % 2  # chess-pattern board
+        layout = np.zeros((game_size, game_size))
         ax.imshow(
             layout, cmap=plt.cm.magma, alpha=0.0, interpolation="nearest"
         )  # plot board
 
         # plot lines separating each cell for visualization
-        for i in range(game_dim + 1):
+        for i in range(game_size + 1):
             plt.plot(
                 [i - 0.5, i - 0.5],
-                [-0.5, game_dim - 0.5],
+                [-0.5, game_size - 0.5],
                 color="k",
                 linestyle="-",
                 linewidth=1,
             )
             plt.plot(
-                [-0.5, game_dim - 0.5],
+                [-0.5, game_size - 0.5],
                 [i - 0.5, i - 0.5],
                 color="k",
                 linestyle="-",
@@ -64,7 +64,7 @@ class Board(np.ndarray):
             )
 
         # go through all board positions and print the respective markers
-        for pos in ((i, j) for i in range(game_dim) for j in range(game_dim)):
+        for pos in ((i, j) for i in range(game_size) for j in range(game_size)):
             piece = self[pos]  # select piece on respective board position
             # decide which marker type to use for piece
             if piece is not None:

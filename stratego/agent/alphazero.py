@@ -9,7 +9,7 @@ class AlphaZero(RLAgent):
 
     _representation_filters = []
 
-    def __init__(self, team, game_dim=5, low_train=False):
+    def __init__(self, team, game_size=5, low_train=False):
         super(AlphaZero, self).__init__(team=team)
         self.canonical_teams = True
         self.invert_moves = bool(team)
@@ -18,10 +18,10 @@ class AlphaZero(RLAgent):
 
         filter_amounts = np.array([128, 128, 128, 128])
         maxpool_layer_pos = np.array([0, 1, 0, 0])
-        width, height = game_dim, game_dim
+        width, height = game_size, game_size
         for pos in maxpool_layer_pos:
             if pos == 1:
-                width = game_dim // 2
+                width = game_size // 2
                 height = width
         d_in = filter_amounts[-1] * width * height
         d_out = self.action_dim
@@ -31,7 +31,7 @@ class AlphaZero(RLAgent):
         start_layer_exponent = 10
         activation_function = torch.nn.ReLU()
         nnet = models.ELaborateConvFC(
-            game_dim=game_dim,
+            game_size=game_size,
             channels_in=self.state_dim,
             filter_amounts=filter_amounts,
             maxpool_layer_pos=maxpool_layer_pos,
@@ -44,7 +44,7 @@ class AlphaZero(RLAgent):
             activation_function=activation_function,
         )
         self.model = models.NNetWrapper(
-            game_dim=game_dim, nnet=nnet, action_dim=self.action_dim
+            game_size=game_size, nnet=nnet, action_dim=self.action_dim
         )
         # self.model = models.Linear(self.state_dim, self.action_dim)
         # self.model.load_state_dict(torch.load('./saved_models/stratego_best.pkl'))
@@ -134,10 +134,10 @@ class AlphaZero(RLAgent):
     def invert_move(self, move):
         if self.invert_moves:
             from_, to_ = move
-            game_dim = self.board.shape[0]
+            game_size = self.board.shape[0]
             return (
-                (game_dim - 1 - from_[0], game_dim - 1 - from_[1]),
-                (game_dim - 1 - to_[0], game_dim - 1 - to_[1]),
+                (game_size - 1 - from_[0], game_size - 1 - from_[1]),
+                (game_size - 1 - to_[0], game_size - 1 - to_[1]),
             )
         return move
 

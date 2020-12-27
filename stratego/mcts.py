@@ -78,7 +78,7 @@ class MCTS():
 
         if s not in self.Es:
             self.Es[s] = state.get_status()
-        elif state.move_count > state.max_nr_turns:
+        elif state.move_counter > state.max_nr_turns:
             return 0
         if self.Es[s] != 404:
             # terminal node

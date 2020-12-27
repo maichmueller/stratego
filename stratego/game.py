@@ -2,7 +2,7 @@ import copy
 
 from .piece import Piece
 from copy import deepcopy
-from typing import Tuple, Optional, Dict, List
+from typing import Tuple, Optional, Dict, List, Sequence
 
 import numpy as np
 
@@ -12,11 +12,10 @@ from .agent import Agent, RLAgent
 from .state import State
 from .logic import Logic
 from .spatial import Position, Board, Move
-from .game_defs import Status
+from .game_defs import Status, Player
 
 from inspect import signature
 import matplotlib.pyplot as plt
-from collections import namedtuple
 
 
 def get_game_defaults(board_size: str):
@@ -24,13 +23,13 @@ def get_game_defaults(board_size: str):
     if board_size in ["s", "small"]:
         types_available = np.array([0, 1] + [2] * 3 + [3] * 2 + [10] + [11] * 2)
         obstacle_positions = [(2, 2)]
-        game_dim = 5
+        game_size = 5
     elif board_size in ["m", "medium"]:
         types_available = np.array(
             [0, 1] + [2] * 5 + [3] * 3 + [4] * 3 + [5] * 2 + [6] + [10] + [11] * 4
         )
         obstacle_positions = [(3, 1), (3, 5)]
-        game_dim = 7
+        game_size = 7
     elif board_size in ["l", "large"]:
         types_available = np.array(
             [0, 1]
@@ -55,10 +54,10 @@ def get_game_defaults(board_size: str):
             (4, 7),
             (5, 7),
         ]
-        game_dim = 10
+        game_size = 10
     else:
         raise ValueError(f"Board size {board_size} not supported.")
-    return types_available, obstacle_positions, game_dim
+    return types_available, obstacle_positions, game_size
 
 
 class Game:
@@ -77,7 +76,7 @@ class Game:
         (
             self.types_available,
             self.obstacle_positions,
-            self.game_dim,
+            self.game_size,
         ) = get_game_defaults(board_size)
 
         self.history = None
@@ -108,7 +107,7 @@ class Game:
         return hash(str(self))
 
     def _build_board_from_setups(self, setup0, setup1):
-        board = np.empty((self.game_dim, self.game_dim), dtype=object)
+        board = np.empty((self.game_size, self.game_size), dtype=object)
 
         for setup in (setup0, setup1):
             pieces_version = defaultdict(int)
@@ -127,16 +126,16 @@ class Game:
     def reset(self):
         setup0 = self.fixed_setups[0]
         if setup0 is None:
-            setup0 = self._draw_random_setup(self.types_available, 0, self.game_dim)
+            setup0 = self._draw_random_setup(self.types_available, 0, self.game_size)
         setup1 = self.fixed_setups[1]
         if setup1 is None:
-            setup1 = self._draw_random_setup(self.types_available, 1, self.game_dim)
+            setup1 = self._draw_random_setup(self.types_available, 1, self.game_size)
 
         board_arr = self._build_board_from_setups(setup0, setup1)
 
         self.state = State(Board(board_arr))
 
-        self.history = History(self.state.board)
+        self.history = History()
 
         return self
 
@@ -178,8 +177,9 @@ class Game:
         return rewards
 
     def run_step(self, move: Optional[Move] = None, **kwargs):
-        turn = self.state.move_count % 2  # player 1 or player 0
-        agent = self.agents[turn]
+        player = self.state.active_player
+        agent = self.agents[player]
+
         if move is None:
             move = agent.decide_move(self.state, **kwargs)
 
@@ -189,15 +189,15 @@ class Game:
 
         if not Logic.is_legal_move(self.state.board, move):
             self.reward_agent(agent, self.reward_illegal)
-            return Status.win_1 if turn == 0 else Status.win_0
+            return Status.win_red if player == Player.Team.blue else Status.win_blue
 
         self.history.commit_move(
             self.state.board,
             move,
-            turn,
+            player,
         )
 
-        fight_status = Logic.do_move(self.state, move)  # execute agent's choice
+        fight_status = Logic.execute_move(self.state, move)  # execute agent's choice
 
         if fight_status is not None:
             if fight_status == 1:
@@ -209,65 +209,74 @@ class Game:
         if Logic.get_status(self.state) != Status.ongoing:
             return self.state.terminal
 
-        self.state.move_count += 1
+        self.state.move_counter += 1
 
         return Status.ongoing
 
     @staticmethod
-    def _draw_random_setup(types_available, team, game_dim):
+    def _draw_random_setup(types_available: Sequence[int], player: Player, game_size: int):
         """
         Draw a random setup from the set of types types_available after placing the flag
         somewhere in the last row of the board of the side of 'team', or behind the obstacle.
-        :param types_available: list of types to draw from, integers
-        :param team: boolean, 1 or 0 depending on the team
-        :param game_dim: int, the board dimension
-        :return: the setup, in numpy array form
+        
+        Parameters
+        ----------
+        types_available:    list,
+            piece types to draw from
+        player: Player,
+        game_size: int,
+            the board size
+        
+        Returns
+        -------
+        np.ndarray,
+            the setup, in numpy array form
         """
         nr_pieces = len(types_available) - 1
         types_available = [type_ for type_ in types_available if not type_ == 0]
-        if game_dim == 5:
+        if game_size == 5:
             row_offset = 2
-        elif game_dim == 7:
+        elif game_size == 7:
             row_offset = 3
         else:
             row_offset = 4
-        setup_agent = np.empty((row_offset, game_dim), dtype=object)
-        if team == 0:
-            flag_positions = [(game_dim - 1, j) for j in range(game_dim)]
+        setup_agent = np.empty((row_offset, game_size), dtype=object)
+        if player == 0:
+            flag_positions = [(game_size - 1, j) for j in range(game_size)]
             flag_choice = np.random.choice(range(len(flag_positions)), 1)[0]
             flag_pos = flag_positions[flag_choice]
             flag_pos_inv = (
-                game_dim - 1 - flag_positions[flag_choice][0],
-                game_dim - 1 - flag_positions[flag_choice][1],
+                game_size - 1 - flag_positions[flag_choice][0],
+                game_size - 1 - flag_positions[flag_choice][1],
             )
             setup_agent[flag_pos_inv] = Piece(0, 0, Position(flag_pos[0], flag_pos[1]))
 
             types_draw = np.random.choice(types_available, nr_pieces, replace=False)
             positions_agent_0 = [
                 (i, j)
-                for i in range(game_dim - row_offset, game_dim)
-                for j in range(game_dim)
+                for i in range(game_size - row_offset, game_size)
+                for j in range(game_size)
             ]
             positions_agent_0.remove(flag_positions[flag_choice])
 
             for idx in range(nr_pieces):
                 pos = positions_agent_0[idx]
-                setup_agent[(game_dim - 1 - pos[0], game_dim - 1 - pos[1])] = Piece(
+                setup_agent[(game_size - 1 - pos[0], game_size - 1 - pos[1])] = Piece(
                     types_draw[idx], 0, Position(pos[0], pos[1])
                 )
-        elif team == 1:
-            flag_positions = [(0, j) for j in range(game_dim)]
+        elif player == 1:
+            flag_positions = [(0, j) for j in range(game_size)]
             flag_choice = np.random.choice(range(len(flag_positions)), 1)[0]
             flag_pos = flag_positions[flag_choice]
             flag_pos_inv = (
-                game_dim - 1 - flag_positions[flag_choice][0],
-                game_dim - 1 - flag_positions[flag_choice][1],
+                game_size - 1 - flag_positions[flag_choice][0],
+                game_size - 1 - flag_positions[flag_choice][1],
             )
             setup_agent[flag_pos_inv] = Piece(0, 1, Position(flag_pos[0], flag_pos[1]))
 
             types_draw = np.random.choice(types_available, nr_pieces, replace=False)
             positions_agent_1 = [
-                (i, j) for i in range(row_offset) for j in range(game_dim)
+                (i, j) for i in range(row_offset) for j in range(game_size)
             ]
             positions_agent_1.remove(flag_positions[flag_choice])
 

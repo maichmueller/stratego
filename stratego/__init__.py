@@ -3,3 +3,4 @@ from .logic import Logic
 from .utils import Singleton
 from .game import Game
 from .piece import Piece
+from .game_defs import *

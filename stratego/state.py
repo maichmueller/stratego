@@ -1,6 +1,6 @@
 from typing import Sequence, Optional, Tuple, Dict
 
-from .game_defs import Status
+from .game_defs import Status, Player
 from .piece import Piece
 from .spatial import Position, Board
 
@@ -9,6 +9,7 @@ from collections import defaultdict, Counter
 
 
 class State:
+
     def __init__(
         self,
         board: Board,
@@ -22,13 +23,14 @@ class State:
         else:
             self.dead_pieces = (dict(), dict())
         self.board = board
-        self.game_dim = board.shape[0]
+        self.game_size = board.shape[0]
 
         self.canonical_teams = True
 
-        self.move_count = move_count
+        self._move_counter = move_count
+        self.active_player = Player(move_count)
 
-        self.terminal = Status.ongoing
+        self.terminal: Status = Status.ongoing
         self.terminal_checked = True
 
         if dead_pieces is not None:
@@ -41,6 +43,15 @@ class State:
 
     def __hash__(self):
         return hash(str(self))
+
+    @property
+    def move_counter(self):
+        return self._move_counter
+
+    @move_counter.setter
+    def move_counter(self, count: int):
+        self._move_counter = count
+        self.active_player = Player(count)
 
     def update_board(
         self,
@@ -129,7 +140,7 @@ class State:
             elif not utils.get_poss_moves(self.board, (turn + 1) % 2):
                 self.terminal = (-1) ** turn * 2  # agent of turn wins by moves
 
-        if self.move_count is not None and self.move_count > self.max_nr_turns:
+        if self.move_counter is not None and self.move_counter > self.max_nr_turns:
             self.terminal = 0
 
         self.terminal_checked = True

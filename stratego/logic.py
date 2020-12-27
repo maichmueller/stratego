@@ -41,7 +41,7 @@ class Logic(metaclass=Singleton):
     four_adjacency = np.array([(1, 0), (-1, 0), (0, 1), (0, -1)], dtype=int)
 
     @staticmethod
-    def do_move(state: State, move: Move) -> Optional[int]:
+    def execute_move(state: State, move: Move) -> Optional[int]:
         """
         Execute the move on the provided state.
 
@@ -91,7 +91,7 @@ class Logic(metaclass=Singleton):
 
         state.update_board((to_pos, from_pos), to_from_update)
 
-        state.move_count += 1
+        state.move_counter += 1
         return fight_outcome
 
     @staticmethod
@@ -133,7 +133,7 @@ class Logic(metaclass=Singleton):
         ):
             return Status.draw
 
-        if state.move_count is not None and state.move_count > MAX_NR_TURNS:
+        if state.move_counter is not None and state.move_counter > MAX_NR_TURNS:
             state.terminal = 0
 
         state.terminal_checked = True
@@ -196,11 +196,11 @@ class Logic(metaclass=Singleton):
         Iterator,
             lazily iterates over all possible moves of the player.
         """
-        game_dim = board.shape[0]
+        game_size = board.shape[0]
         for pos, piece in np.ndenumerate(board):
             if piece is not None and piece.team == player and piece.can_move:
                 # board position has a movable piece of your team on it
-                for pos_to in Logic.moves_iter(piece.type, pos, game_dim):
+                for pos_to in Logic.moves_iter(piece.type, pos, game_size):
                     move = Move(pos, pos_to)
                     if Logic.is_legal_move(board, move):
                         yield move
@@ -228,11 +228,11 @@ class Logic(metaclass=Singleton):
     def moves_iter(
         piece_type: int,
         pos: Position,
-        game_dim: int,
+        game_size: int,
         stops: Optional[Sequence[int]] = None,
     ):
         if stops is None:
-            stops = [game_dim - pos.x, pos.x + 1, game_dim - pos.y, pos.y + 1]
+            stops = [game_size - pos.x, pos.x + 1, game_size - pos.y, pos.y + 1]
         if piece_type != 2:
             stops = [min(stop, 2) for stop in stops]
 
