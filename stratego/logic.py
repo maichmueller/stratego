@@ -1,39 +1,14 @@
-from .game_defs import Status, MAX_NR_TURNS
-from .utils import Singleton
+from .game_defs import Status, MAX_NR_TURNS, Player, Token, Team
+from .utils.utils import Singleton
 from .state import State
 from .piece import Piece
-from .spatial import Position, Move, Board
+from .spatial import Position, Move
+from .spatial import Board
 
-from typing import Sequence, Dict, Tuple, Optional, Iterator
+from typing import Sequence, Dict, Tuple, Optional, Iterator, Union
 from scipy import spatial
 import numpy as np
 from collections import Counter, defaultdict
-
-
-def create_battle_matrix():
-    bm: Dict[Tuple[int, int], int] = dict()
-    for i in range(1, 11):
-        for j in range(1, 11):
-            if i < j:
-                bm[i, j] = -1
-                bm[j, i] = 1
-            elif i == j:
-                bm[i, i] = 0
-        bm[i, 0] = 1
-        if i == 3:
-            bm[i, 11] = 1
-        else:
-            bm[i, 11] = -1
-    bm[1, 10] = 1
-    return bm
-
-
-class BattleMatrix(metaclass=Singleton):
-
-    matrix: Dict[Tuple[int, int], int] = create_battle_matrix()
-
-    def __class_getitem__(cls, piece_att: Piece, piece_def: Piece):
-        return cls.matrix[piece_att.type, piece_def.type]
 
 
 class Logic(metaclass=Singleton):
@@ -72,18 +47,18 @@ class Logic(metaclass=Singleton):
                 print("Warning, cant let pieces of same team fight!")
                 return False
 
-            fight_outcome = BattleMatrix[piece_att.type, piece_def.type]
+            fight_outcome = BattleMatrix[piece_att.token, piece_def.token]
             if fight_outcome == 1:
-                state.dead_pieces[piece_def.team][piece_def.type] += 1
+                state.dead_pieces[piece_def.team][piece_def.token] += 1
                 to_from_update = board[from_pos], None
 
             elif fight_outcome == 0:
-                state.dead_pieces[piece_def.team][piece_def.type] += 1
-                state.dead_pieces[piece_att.team][piece_att.type] += 1
+                state.dead_pieces[piece_def.team][piece_def.token] += 1
+                state.dead_pieces[piece_att.team][piece_att.token] += 1
                 to_from_update = None, None
 
             else:
-                state.dead_pieces[piece_att.team][piece_att.type] += 1
+                state.dead_pieces[piece_att.team][piece_att.token] += 1
                 to_from_update = None, board[to_pos]
 
         else:
@@ -95,48 +70,59 @@ class Logic(metaclass=Singleton):
         return fight_outcome
 
     @staticmethod
+    def undo_last_n_turns(state: State, n: int):
+        """
+        Undo the last n moves in the memory.
+
+        state:  State,
+            the state on which to undo the last rounds
+        n:  int,
+            number of moves to undo
+        """
+        for t in range(n):
+            turn = state.history.turns[-1] - t
+            move, (piece_from, piece_to) = (
+                state.history.move[turn],
+                state.history.pieces[turn],
+            )
+            state.board[move.from_] = piece_from
+            state.board[move.to_] = piece_to
+
+            if piece_to is not None:
+                # if the target position held an actual piece, then there was a fight and
+                # we need to update the dead pieces dictionary.
+                if fight := BattleMatrix[piece_from.token, piece_to.token] == 0:
+                    state.dead_pieces[Player(piece_from.team)][piece_from.token] -= 1
+                    state.dead_pieces[Player(piece_to.team)][piece_to.token] -= 1
+                elif fight == 1:
+                    # the defender lost back then, so now remove it from the dead pieces
+                    state.dead_pieces[Player(piece_to.team)][piece_to.token] -= 1
+                else:
+                    # the attacker lost back then, so now remove it from the dead pieces
+                    state.dead_pieces[Player(piece_from.team)][piece_from.token] -= 1
+
+    @staticmethod
     def get_status(state: State, force=False, **kwargs):
-        if force or not state.terminal_checked:
+        if force or not state.status_checked:
             Logic.check_terminal(state, **kwargs)
-        return state.terminal
+        return state.status
 
     @staticmethod
     def check_terminal(state: State, flag_only=False, turn=0):
-        if not any(state.dead_pieces):
-            flags = sum(
-                [
-                    piece.team + 1
-                    for piece in state.board.flatten()
-                    if piece is not None and int == 0
-                ]
-            )
-            if flags != 3:  # == 3 only if both flag 0 and flag 1 are present
-                if flags == 1:  # agent 1 flag has been captured
-                    state.terminal = 1  # agent 0 wins by flag
-                else:
-                    state.terminal = -1  # agent 1 wins by flag
+        for player in (Player(0), Player(1)):
+            if state.dead_pieces[player][Token.flag] == 1:
+                state.status = Status[player]
 
-        else:
-            if state.dead_pieces[0][0] == 1:
-                state.terminal = -1
-            elif state.dead_pieces[1][0] == 1:
-                state.terminal = 1
+        if not flag_only:
+            if state.move_counter > MAX_NR_TURNS or any(
+                not all(
+                    move is None for move in Logic.possible_moves_iter(state.board, t)
+                )
+                for t in (turn, (turn + 1) % 2)
+            ):
+                state.status = Status.draw
 
-        if not flag_only and (
-            not all(
-                move is None for move in Logic.possible_moves_iter(state.board, turn)
-            )
-            or not all(
-                move is None
-                for move in Logic.possible_moves_iter(state.board, (turn + 1) % 2)
-            )
-        ):
-            return Status.draw
-
-        if state.move_counter is not None and state.move_counter > MAX_NR_TURNS:
-            state.terminal = 0
-
-        state.terminal_checked = True
+        state.status_checked = True
 
     @staticmethod
     def is_legal_move(board: Board, move_to_check: Move):
@@ -168,7 +154,7 @@ class Logic(metaclass=Singleton):
         if not board[pos_after] is None:
             if board[pos_after].team == board[pos_before].team:
                 return False  # cant fight own pieces
-            if board[pos_after].type == 99:
+            if board[pos_after].token == 99:
                 return False  # cant fight obstacles
 
         move_dist = spatial.distance.cityblock(pos_before, pos_after)
@@ -189,59 +175,68 @@ class Logic(metaclass=Singleton):
         return True
 
     @staticmethod
-    def possible_moves_iter(board: Board, player: int) -> Iterator[Move]:
+    def possible_moves_iter(board: Board, team: Union[int, Team]) -> Iterator[Move]:
         """
         Returns
         -------
         Iterator,
             lazily iterates over all possible moves of the player.
         """
+        team = Team(team)
         game_size = board.shape[0]
         for pos, piece in np.ndenumerate(board):
-            if piece is not None and piece.team == player and piece.can_move:
+            if piece is not None and piece.team == team and piece.can_move:
                 # board position has a movable piece of your team on it
-                for pos_to in Logic.moves_iter(piece.type, pos, game_size):
-                    move = Move(pos, pos_to)
+                for move in Logic.moves_iter(piece.token, pos, game_size):
                     if Logic.is_legal_move(board, move):
                         yield move
 
     @staticmethod
-    def compute_dead_pieces(board: Board, types_available: Sequence[int]):
+    def compute_dead_pieces(board: Board, token_count: Sequence[int]):
         pieces0, pieces1 = defaultdict(int), defaultdict(int)
 
         for piece in board.flatten():
             if piece is not None:
                 if piece.team:
-                    pieces1[piece.type] += 1
+                    pieces1[piece.token] += 1
                 else:
-                    pieces0[piece.type] += 1
+                    pieces0[piece.token] += 1
 
         dead_pieces = dict()
         for pcs, team in zip((pieces0, pieces0), (0, 1)):
             dead_pieces_dict = dict()
-            for type_, freq in Counter(types_available).items():
-                dead_pieces_dict[type_] = freq - pcs[type_]
+            for token, freq in Counter(token_count).items():
+                dead_pieces_dict[token] = freq - pcs[token]
             dead_pieces[team] = dead_pieces_dict
         return dead_pieces
 
     @staticmethod
     def moves_iter(
-        piece_type: int,
+        token: Union[Token, int],
         pos: Position,
         game_size: int,
-        stops: Optional[Sequence[int]] = None,
-    ):
-        if stops is None:
-            stops = [game_size - pos.x, pos.x + 1, game_size - pos.y, pos.y + 1]
-        if piece_type != 2:
-            stops = [min(stop, 2) for stop in stops]
+        distances: Optional[Sequence[int]] = None,
+    ) -> Iterator[Move]:
+        token = Token(token)
 
-        assert (
-            len(stops) == 4
-        ), "Exactly 4 stops need to be passed, since the grid has 4-adjacency."
+        if distances is None:
+            distances = (game_size - pos.x, pos.x + 1, game_size - pos.y, pos.y + 1)
+            if token.value != 2:
+                distances = tuple(
+                    map(
+                        lambda x: min(x, 2),
+                        distances,
+                    )
+                )
+
+        else:
+            assert (
+                    len(distances) == 4
+            ), "A sequence of 4 distances needs to be passed, since the grid has 4-adjacency."
+
         for (i, j), stop in zip(
             Logic.four_adjacency,
-            stops,
+            distances,
         ):
             for k in range(1, stop):
-                yield pos + Position(i, j) * k
+                yield Move(pos, pos + Position(i, j) * k)

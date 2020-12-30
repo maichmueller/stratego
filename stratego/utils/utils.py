@@ -10,6 +10,7 @@ from torch.nn import functional as F
 from torch.autograd import Variable
 import copy
 import random
+from inspect import signature
 
 
 class Singleton(type):
@@ -19,6 +20,14 @@ class Singleton(type):
         if cls not in cls._instances:
             cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
         return cls._instances[cls]
+
+
+def slice_kwargs(func, kwargs):
+    sliced_kwargs = dict()
+    for p in signature(func).parameters.values():
+        if p in kwargs:
+            sliced_kwargs[p.name] = kwargs.pop(p.name)
+    return sliced_kwargs
 
 
 def plot_scores(episode_scores, n_smooth):

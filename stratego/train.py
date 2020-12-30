@@ -44,7 +44,7 @@ def optimize_model(model):
     state_batch = torch.cat(batch.state)
     action_batch = torch.cat(batch.action)
 
-    reward_batch = torch.cat(batch.reward)
+    reward_batch = torch.cat(batch.total_reward)
 
     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the columns of actions taken
     state_action_values = model(state_batch).gather(1, action_batch)
@@ -81,7 +81,7 @@ def run_env(env, n_runs=100, show=True):
         too_many_steps_games = 0
         while not done:
             state = env.agents[0].state_to_tensor()  # for the reinforcement agent convert board to state input
-            action = env.agents[0].select_action(state, 0.00)
+            action = env.agents[0].choose_action(state, 0.00)
             if action is not None:
                 action = action[0, 0]  # action is unwrapped from the LongTensor
             move = env.agents[0].action_to_move(action)  # e.g. action = 1 -> move = ((0, 0), (0, 1))
@@ -126,7 +126,7 @@ def train(env_, num_episodes):
             while True:
                 # act in environment
                 p_random = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * i_episode / EPS_DECAY)
-                action = env_.agents[0].select_action(state, p_random)  # random action with p_random
+                action = env_.agents[0].choose_action(state, p_random)  # random action with p_random
                 if action is not None:
                     move = env_.agents[0].action_to_move(action[0, 0])
                 else:

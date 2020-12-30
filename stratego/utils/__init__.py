@@ -1,1 +1,1 @@
-from .utils import Singleton
+from .utils import Singleton, slice_kwargs

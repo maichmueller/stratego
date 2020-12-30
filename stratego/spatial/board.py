@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from typing import Optional
 
+from stratego import Player, ShadowPiece, Piece, Team
 from stratego.spatial import Position
 
 import numpy as np
@@ -19,7 +22,7 @@ class Board(np.ndarray):
         )
         return obj
 
-    def print_board(self, figure: Optional[plt.Figure] = None, ax: Optional[plt.Axes] = None):
+    def print_board(self, figure: Optional[plt.Figure] = None, ax: Optional[plt.Axes] = None, **kwargs):
         """
         Plots the board in a pyplot figure.
 
@@ -29,13 +32,12 @@ class Board(np.ndarray):
             the figure of the plot. Is instantiated if not provided.
         ax: plt.Axes object (optional),
             the axis in which to plot the board. Is instantiated if not provided.
-        block: bool (def: false),
-            whether to block any further execution after plotting.
+        kwargs: Dict,
+            optional keyword arguments for plt.Figure
         """
         game_size = self.shape[0]
-        # plt.interactive(False)  # make plot stay? true: close plot, false: keep plot
         if figure is None:
-            figure = plt.Figure(42000)
+            figure = plt.figure(num=kwargs.pop("num", 42000), **kwargs)
         if ax is None:
             ax = figure.subplots(1, 1)
 
@@ -68,12 +70,11 @@ class Board(np.ndarray):
             piece = self[pos]  # select piece on respective board position
             # decide which marker type to use for piece
             if piece is not None:
-                # piece.hidden = False  # omniscient view
 
-                if piece.team == 1:
-                    color = "r"  # blue: player 1
-                elif piece.team == 0:
-                    color = "b"  # red: player 0
+                if piece.team == Team.red:
+                    color = "r"  # red: player 1
+                elif piece.team == Team.blue:
+                    color = "b"  # blue: player 0
                 else:
                     color = "k"  # black: obstacle
 
@@ -89,24 +90,58 @@ class Board(np.ndarray):
                 plt.plot(
                     pos[1], pos[0], piece_marker, markersize=37, alpha=alpha
                 )  # plot marker
-                # piece type written on marker center
-                plt.annotate(
-                    str(piece),
-                    xy=(pos[1], pos[0]),
-                    color="w",
-                    size=20,
-                    ha="center",
-                    va="center",
-                )
+
+                if not piece.hidden:
+                    # token written on marker center
+                    plt.annotate(
+                        str(piece),
+                        xy=(pos[1], pos[0]),
+                        color="w",
+                        size=20,
+                        ha="center",
+                        va="center",
+                    )
+
         # invert y makes numbering more natural; puts agent 1 on bottom, 0 on top !
         # plt.gca().invert_yaxis()
 
         return figure, ax
 
+    def get_info_board(self, player: Player) -> Board:
+        """
+        Slice the current board and extract the information board the given player can have,
+        i.e. the board with all the information this player has.
+
+        Parameters
+        ----------
+        player: Player,
+            the player whose information is to be mapped
+
+        Returns
+        -------
+        Board,
+            the information board
+        """
+        info_board = Board(np.ndarray((5, 5), dtype=object))
+        opponent = player.opponent()
+        for piece in self.flatten():
+            if piece is not None:
+                if piece.team != opponent.team:
+                    info_board[piece.position] = piece
+                else:
+                    if piece.hidden:
+                        info_board[piece.position] = ShadowPiece(opponent.team, piece.position)
+                    else:
+                        info_board[piece.position] = piece
+
+        return info_board
+
     @singledispatchmethod
     def __getitem__(self, item):
-        return super(Board, self).__getitem__(item)
+        # whenever np.ndarray knows how to handle the type, we let it
+        return super().__getitem__(item)
 
     @__getitem__.register
     def _(self, item: Position):
-        return super(Board, self).__getitem__((item[0], item[1]))
+        # for our custom position type
+        return super().__getitem__((item[0], item[1]))

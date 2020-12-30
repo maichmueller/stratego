@@ -9,3 +9,5 @@ checkpoints/*
 **/__pycache__/
 
 
+
+.dmypy.json

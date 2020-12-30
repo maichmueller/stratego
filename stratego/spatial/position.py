@@ -54,8 +54,13 @@ def _(self, pos: Position):
 
 
 class Move:
-    def __init__(self, pos1: Position, pos2: Position):
-        self.from_to = (pos1, pos2)
+    @singledispatchmethod
+    def __init__(
+        self,
+        pos1: Union[Tuple[int, int], Position],
+        pos2: Union[Tuple[int, int], Position],
+    ):
+        self.from_to = (Position(pos1), Position(pos2))
 
     @property
     def from_(self):

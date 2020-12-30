@@ -1,7 +1,7 @@
 import agent
 import arena
 
-#g = game.Game(agent.MiniMax(0), agent.Random(1), board_size='small')
+#g = game.Game(agent.MiniMax(0), agent.Random(1), game_size='small')
 #actions, relation_dict = utils.action_rep.actions, utils.action_rep.act_piece_relation
 # ar = arena.Arena(agent.AlphaZero(0, low_train=True), agent.Random(1))
 ar = arena.Arena(agent.Random(0), agent.MiniMax(1))

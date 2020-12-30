@@ -201,7 +201,7 @@ class Coach:
             test_ag_1 = agent.AlphaZero(1, low_train=True)
             test_ag_1.model.load_checkpoint(folder=self.model_folder, filename='temp.pth.tar')
 
-            arena = Arena(test_ag_0, test_ag_1, board_size=self.game.board_size)
+            arena = Arena(test_ag_0, test_ag_1, game_size=self.game.game_size)
             ag_0_wins, ag_1_wins, draws = arena.pit(num_sims=self.num_iters)
 
             print(f'Wins / losses of new model: {ag_0_wins} / {ag_1_wins } '
@@ -244,5 +244,5 @@ if __name__ == '__main__':
     c = Coach(agent.AlphaZero(0),
               num_episodes=1000,
               mcts_simulations=100,
-              board_size='small')
+              game_size='small')
     c.teach(from_prev_examples=True, load_current_best=True, skip_first_self_play=False, multiprocess=False)

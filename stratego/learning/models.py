@@ -19,7 +19,7 @@ class NNetWrapper:
         self.action_size = action_dim
 
     def to_device(self):
-        if GLOBAL_DEVICE.device.type == 'cpu':
+        if GLOBAL_DEVICE.device.token == 'cpu':
             self.nnet = self.nnet.cpu()
         else:
             self.nnet = self.nnet.cuda()
@@ -129,7 +129,7 @@ class NNetWrapper:
         filepath = os.path.join(folder, filename)
         if not os.path.exists(filepath):
             raise ValueError("No model in path {}".format(filepath))
-        map_location = None if GLOBAL_DEVICE.device.type != 'cpu' else 'cpu'
+        map_location = None if GLOBAL_DEVICE.device.token != 'cpu' else 'cpu'
         checkpoint = torch.load(filepath, map_location=map_location)
         self.nnet.load_state_dict(checkpoint['state_dict'])
 

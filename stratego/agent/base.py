@@ -1,3 +1,5 @@
+from typing import Dict, List, Callable
+
 import numpy as np
 import copy
 
@@ -7,52 +9,35 @@ from scipy import spatial
 # from scipy import optimize
 
 import torch
-from collections import Counter
+from collections import Counter, defaultdict
 from abc import ABC
-from stratego.action import ActionMap
+
+from stratego.game_defs import Team, Token, HookPoint, get_game_specs, GameSpecification
+from stratego.learning import RewardToken
+from stratego.piece import Piece, ShadowPiece
+from stratego.action import ActionMap, Action
+from stratego.spatial import Board, Move, Position
 
 from stratego.state import State
 
 
-class Agent:
+class Agent(ABC):
     """
-    Agent decides which action to take
+    A general abstract agent base class.
     """
 
-    def __init__(self, team):
+    def __init__(self, team: Team):
         self.team = team
-        self.other_team = (self.team + 1) % 2
+        self.hooks: Dict[HookPoint, List[Callable]] = defaultdict(list)
 
-    def decide_move(self, state, *args, **kwargs):
+    def decide_move(self, state: State) -> Move:
         """
-        Implementation of the agent's move for the current round
-        :return: tuple of "from" spatial tuple to "to" spatial tuple representing the move
-        """
-        raise NotImplementedError
+        Decide the move to make for the given state of the game.
 
-
-class RLAgent(Agent, ABC):
-    """
-    Agent approximating action-value functions with an artificial neural network
-    trained with Q-learning
-    """
-
-    def __init__(self, team, action_map: ActionMap):
-        super(RLAgent, self).__init__(team=team)
-        self.state_dim = None
-        self.action_dim = None
-        self.model = None
-        self.action_map = None
-        self.reward = 0
-
-    def decide_move(self, state, *args, **kwargs):
-        """
         Parameters
         ----------
         state: State,
             the state on which the decision is to be made.
-        args: ignored
-        kwargs: ignored
 
         Returns
         -------
@@ -61,98 +46,106 @@ class RLAgent(Agent, ABC):
         """
         raise NotImplementedError
 
-    def state_representation(self, player):
+    def _register_hook(self, hook_point: HookPoint, hook: Callable):
         """
-        Specify the state representation as input for the network
+        Add a hook which is supposed to be provided to the game.
+        """
+        self.hooks[hook_point].append(hook)
+
+
+class RLAgent(Agent, ABC):
+    """
+    Reinforcement Learning agent
+    """
+
+    def __init__(
+        self,
+        team: Team,
+        action_map: ActionMap,
+        representation_dim: int,
+        model: torch.nn.Module,
+        reward_map: Dict[RewardToken, float],
+    ):
+        super().__init__(team=team)
+        self.representation_dim = representation_dim
+        self.action_map = action_map
+        self.action_dim = len(action_map.actions)
+        self.model = model
+        self.total_reward = 0
+
+        # RL attributes
+        self.score = 0
+        self.total_reward = 0
+
+        self.reward_map: Dict[RewardToken, float] = reward_map
+
+    def choose_action(self, state) -> Action:
+        """
+        Choose the action to take with which to form the next move.
 
         Parameters
         ----------
-        player: int,
-            the player from whose view the state is to be represented
-        """
-        return NotImplementedError
+        state: State,
+            the current state of the game.
 
-    def select_action(self, state):
-
-        self.model.eval()
-        state_action_values = self.model(state).view(-1)
-        # state_action_values = state_action_values.cpu()
-
-        action = self.actions[int(torch.argmax(state_action_values))]
-
-        return action
-
-    def add_reward(self, reward):
-        self.reward += reward
-
-    def action_to_move(self, action):
-        """
-        Converting an action (integer between 0 and action_dim) to a move on the board,
-        according to the action representation specified in self.piece_action
-        :param action: action integer e.g. 3
-        :return: move e.g. ((0, 0), (0, 1))
-        """
-        if action is None:
-            return None
-        i = self.actions.index(action)
-        piece = self.actors[i]
-        piece_pos = piece.position  # where is the piece
-        if piece_pos is None:
-            move = (None, None)  # return illegal move
-            return move
-
-        pos_to = (piece_pos[0] + action[0], piece_pos[1] + action[1])
-        move = (piece_pos, pos_to)
-        return move
-
-    @staticmethod
-    def check(piece, team, type_, version, hidden):
-        if team == 0:
-            if not hidden:
-                # if it's about team 0, the 'hidden' status is unimportant
-                return 1 * (
-                    piece.team == team
-                    and int == type_
-                    and int == version
-                )
-            else:
-                # hidden is only important for the single layer that checks for
-                # only this quality!
-                return 1 * (piece.team == team and piece.hidden == hidden)
-
-        elif team == 1:
-            # for team 1 we only get the info about type and version if it isn't hidden
-            # otherwise it will fall into the 'hidden' layer
-            if not hidden:
-                if piece.hidden:
-                    return 0
-                else:
-                    return 1 * (
-                        piece.team == team
-                        and int == type_
-                        and int == version
-                    )
-            else:
-                return 1 * (piece.team == team and piece.hidden)
-        else:
-            # only obstace should reach here
-            return 1 * (piece.team == team)
-
-    def state_to_tensor(self, state: State):
-        """
-        Converts the state to the tensor input for a neural network,
-        according to the environment for which the agent is specified
-        :return: torch.Tensor
+        Returns
+        -------
+        Action,
+            the chosen action.
         """
         raise NotImplementedError
 
-    def update_prob_by_fight(self, enemy_piece):
+    def state_to_tensor(self, state: State) -> torch.Tensor:
         """
-        update the information about the given piece, after a fight occured
-        :param enemy_piece: object of class Piece
-        :return: change is in-place, no value specified
+        Converts the state to a torch tensor according to the chosen representation.
+
+        Parameters
+        ----------
+        state:  State,
+            the state to convert.
+
+        Returns
+        -------
+        torch.Tensor
         """
-        enemy_piece.potential_types = [enemy_int]
+        raise NotImplementedError
+
+    def add_reward(self, reward_token: RewardToken):
+        self.total_reward += self.reward_map[reward_token]
+
+
+class MCAgent(Agent, ABC):
+    """
+    A Monte Carlo Agent, which samples a consistent enemy board setup,
+    given the current information and then plans according to the subclasses'
+    strategy.
+    """
+
+    def __init__(self, team: Team, game_size: int):
+        super().__init__(team)
+        self.knowledge_board: Dict[Position, Piece] = self._construct_knowledge_board(
+            GameSpecification(game_size).token_count
+        )
+        self.identified_pieces: List[Piece]
+
+    def _construct_knowledge_board(self, board: Board):
+        kb = dict()
+        return kb
+
+    def identify_piece(self, piece):
+        """
+        Update the information on the true piece type, after a fight occurred.
+
+        Parameters
+        ----------
+        piece: Piece,
+            the piece on which information has been gained.
+
+        Returns
+        -------
+
+        """
+        piece.potential_types = [enemy_int]
 
     def update_prob_by_move(self, move, moving_piece):
         """
@@ -218,5 +211,3 @@ class RLAgent(Agent, ABC):
             piece.hidden = False
             board[piece.position] = piece
         return board
-
-

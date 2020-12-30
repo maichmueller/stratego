@@ -52,10 +52,10 @@ class Arena:
             avg = s / len(self.rounds_count)
             return avg , s
 
-    def __init__(self, agent_0, agent_1, board_size='small', setup_0=None, setup_1=None):
+    def __init__(self, agent_0, agent_1, game_size='small', setup_0=None, setup_1=None):
         self.agent_0 = agent_0
         self.agent_1 = agent_1
-        self.board_size = board_size
+        self.game_size = game_size
         self.setup_0 = setup_0
         self.setup_1 = setup_1
 
@@ -83,9 +83,9 @@ class Arena:
         ag_type_1 = re.search('agent.(.+?) object', ag_type_1).group(1)
 
         if self.setup_0 is None or self.setup_1 is None:
-            game_ = game.Game(agent0=self.agent_0, agent1=self.agent_1, board_size=self.board_size)
+            game_ = game.Game(agent0=self.agent_0, agent1=self.agent_1, game_size=self.game_size)
         else:
-            game_ = game.Game(agent0=self.agent_0, agent1=self.agent_1, board_size=self.board_size,
+            game_ = game.Game(agent0=self.agent_0, agent1=self.agent_1, game_size=self.game_size,
                               fixed_setups=(self.setup_0, self.setup_1))
 
         for simu in range(1, num_sims + 1):  # simulate games
@@ -199,5 +199,5 @@ def write_results(num_sims, ag_type_0, ag_type_1,
 
 
 if __name__ == '__main__':
-    arena = Arena(agent.MiniMax(0), agent.MiniMax(1), board_size="small")
+    arena = Arena(agent.MiniMax(0), agent.MiniMax(1), game_size="small")
     arena.pit(num_sims=100, show_game=False)

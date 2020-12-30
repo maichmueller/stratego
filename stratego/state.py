@@ -1,42 +1,65 @@
-from typing import Sequence, Optional, Tuple, Dict
+import copy
+from typing import Sequence, Optional, Tuple, Dict, List
 
-from .game_defs import Status, Player
-from .piece import Piece
-from .spatial import Position, Board
+from .game_defs import Status, Player, Token, Team
+from .piece import Piece, ShadowPiece
+from .spatial import Position, Move
+from .spatial import Board
 
 import numpy as np
 from collections import defaultdict, Counter
 
 
-class State:
+class History:
+    def __init__(self):
+        self.turns: List[int] = []
+        self.move: Dict[int, Move] = dict()
+        self.team: Dict[int, int] = dict()
+        self.pieces: Dict[int, Tuple[Piece, Piece]] = dict()
 
+    def commit_move(self, board: Board, move: Move, player: player):
+        """
+        Commit the current move to history.
+        """
+        from_ = move.from_
+        to_ = move.to_
+        self.move[player] = move
+        self.pieces[player] = copy.deepcopy(board[from_]), copy.deepcopy(board[to_])
+        self.team[player] = player % 2
+
+
+class State:
     def __init__(
         self,
         board: Board,
+        piece_by_id_map: Dict[Tuple[Token, int, Team], Piece] = None,
+        history: Optional[History] = None,
         move_count: int = 0,
-        dead_pieces: Dict[int, Dict[int, int]] = None,
+        status: Status = Status.ongoing,
+        canonical: bool = True,
+        dead_pieces: Dict[Player, Dict[int, int]] = None,
     ):
-
-        self.obstacle_positions = None
-        if dead_pieces is not None:
-            self.dead_pieces = dead_pieces
-        else:
-            self.dead_pieces = (dict(), dict())
         self.board = board
-        self.game_size = board.shape[0]
+        self.piece_by_id: Dict[Tuple[Token, int, Team], Piece] = (
+            piece_by_id_map
+            if piece_by_id_map is not None
+            else self._relate_piece_to_identifier(self.board)
+        )
+        self.history: History = history if history is not None else History()
+        self.game_size: int = board.shape[0]
 
-        self.canonical_teams = True
+        self._is_canonical: bool = canonical
 
-        self._move_counter = move_count
-        self.active_player = Player(move_count)
+        self._move_counter: int = move_count
+        self.active_player: Player = Player(move_count)
 
-        self.terminal: Status = Status.ongoing
-        self.terminal_checked = True
+        self.status: Status = status
+        self.status_checked: bool = False
 
         if dead_pieces is not None:
             self.dead_pieces = dead_pieces
         else:
-            self.dead_pieces = dict()
+            self.dead_pieces = {Player(0): dict(), Player(1): dict()}
 
     def __str__(self):
         return np.array_repr(self.board)
@@ -52,6 +75,14 @@ class State:
     def move_counter(self, count: int):
         self._move_counter = count
         self.active_player = Player(count)
+
+    def get_info_state(self, player: Player):
+        return State(
+            self.board.get_info_board(player),
+            history=self.history,
+            move_count=self.move_counter,
+            dead_pieces=self.dead_pieces,
+        )
 
     def update_board(
         self,
@@ -70,77 +101,36 @@ class State:
             if piece is not None:
                 piece.change_position(pos)
             self.board[pos] = piece
-        self.terminal_checked = False
+        self.status_checked = False
         return
 
     @staticmethod
-    def check(piece, team, type_, version, hidden):
-        if team == 0:
-            if not hidden:
-                # if it's about team 0, the 'hidden' status is unimportant
-                return 1 * (piece.team == team and int == type_ and int == version)
-            else:
-                # hidden is only important for the single layer that checks for
-                # only this quality!
-                return 1 * (piece.team == team and piece.hidden == hidden)
+    def _relate_piece_to_identifier(board: Board):
+        piece_by_id = dict()
+        for pos, piece in np.ndenumerate(board):
+            if piece is not None and not isinstance(piece, ShadowPiece):
+                id_tuple = piece.token, piece.version, piece.team
+                piece_by_id[id_tuple] = piece
 
-        elif team == 1:
-            # for team 1 we only get the info about type and version if it isn't hidden
-            # otherwise it will fall into the 'hidden' layer
-            if not hidden:
-                if piece.hidden:
-                    return 0
-                else:
-                    return 1 * (piece.team == team and int == type_ and int == version)
-            else:
-                return 1 * (piece.team == team and piece.hidden)
-        else:
-            # only obstace should reach here
-            return 1 * (piece.team == team)
+        return piece_by_id
 
     def force_canonical(self, player):
         """
         Make the given player be team 0.
         :param player: int, the team to convert to
         """
-        if player == 0 and self.canonical_teams:
+        if player == 0 and self._is_canonical:
             # player 0 is still team 0
             return
-        elif player == 1 and not self.canonical_teams:
+        elif player == 1 and not self._is_canonical:
             # player 1 has already been made 0 previously
             return
         else:
             # flip team 0 and 1 and note the change in teams
-            self.canonical_teams = not self.canonical_teams
+            self._is_canonical = not self._is_canonical
             self.board = np.flip(self.board)
             for pos, piece in np.ndenumerate(self.board):
                 # flip all team attributes
                 if piece is not None and piece.team != 99:
                     piece.team ^= 1
                     piece.position = pos
-
-    def check_status(self, flag_only=False, turn=0):
-        if not any(self.dead_pieces):
-            flags = sum([piece.team + 1 for piece in self.board.flatten() if piece is not None and piece.type == 0])
-            if flags != 3:  # == 3 only if both flag 0 and flag 1 are present
-                if flags == 1:  # agent 1 flag has been captured
-                    self.terminal = 1  # agent 0 wins by flag
-                else:
-                    self.terminal = -1  # agent 1 wins by flag
-
-        else:
-            if self.dead_pieces[0][0] == 1:
-                self.terminal = -1
-            elif self.dead_pieces[1][0] == 1:
-                self.terminal = 1
-
-        if not flag_only:
-            if not Logic.get_poss_moves(self.board, turn):
-                self.terminal = (-1) ** (turn + 1) * 2  # agent of turn loses by moves
-            elif not utils.get_poss_moves(self.board, (turn + 1) % 2):
-                self.terminal = (-1) ** turn * 2  # agent of turn wins by moves
-
-        if self.move_counter is not None and self.move_counter > self.max_nr_turns:
-            self.terminal = 0
-
-        self.terminal_checked = True

@@ -1,19 +1,18 @@
+from stratego.action import ActionMap
 from stratego.agent import RLAgent
 import torch
 import numpy as np
-from stratego import utils, models
-from stratego.utils import GLOBAL_DEVICE
+from stratego import Player, State, Logic
+from stratego.learning import models
 
 
 class AlphaZero(RLAgent):
 
     _representation_filters = []
 
-    def __init__(self, team, game_size=5, low_train=False):
-        super(AlphaZero, self).__init__(team=team)
+    def __init__(self, team, action_map: ActionMap, device="cpu"):
+        super().__init__(team=team, action_map=action_map)
         self.canonical_teams = True
-        self.invert_moves = bool(team)
-        self.action_dim = 64  # all pieces 3 * 16 (for pieces: 2, 2, 2) + 4 * 4 for (for pieces 1, 3, 3, 10)
         self.state_dim = len(self.state_representation())
 
         filter_amounts = np.array([128, 128, 128, 128])
@@ -49,17 +48,13 @@ class AlphaZero(RLAgent):
         # self.model = models.Linear(self.state_dim, self.action_dim)
         # self.model.load_state_dict(torch.load('./saved_models/stratego_best.pkl'))
 
-    def decide_move(self, *args, **kwargs):
+    def decide_move(self, state: State, *args, **kwargs):
         self.force_canonical(self.team)
         self.model.to_device()
-        board_state = self.state_to_tensor(self.board)
+        board_state = self.state_to_tensor(state)
         pred, _ = self.model.predict(board_state)
 
-        actions, relation_dict = (
-            utils.action_rep.actions,
-            utils.action_rep.piecetype_to_actionrange,
-        )
-        actions_mask = utils.get_actions_mask(self.board, 0, relation_dict, actions)
+        actions_mask = Logic.actions_mask(self.board, 0, relation_dict, actions)
         pred = actions_mask * pred
 
         if actions_mask.sum() == 0:
@@ -96,41 +91,6 @@ class AlphaZero(RLAgent):
         )
         return board_state
 
-    def action_to_move(self, action_id, team, **kwargs):
-        """
-        Converting an action (integer between 0 and action_dim) to a move on the board,
-        according to the action representation specified in self.piece_action
-        :param action: action integer e.g. 3
-        :return: move e.g. ((0, 0), (0, 1))
-        """
-        if action_id is None:
-            return None
-        actions = utils.action_rep.actions
-        actors = utils.action_rep.actors
-        action = actions[action_id]
-
-        piece_desc = actors[action_id]
-        piece = self.relate_actor_desc(piece_desc, team)
-        piece_pos = piece.position  # where is the piece
-
-        pos_to = (piece_pos[0] + action[0], piece_pos[1] + action[1])
-        move = (piece_pos, pos_to)
-        return move
-
-    def relate_actor_desc(self, desc, team):
-        type_, version = list(map(int, desc.split("_", 1)))
-        for piece in self.board.flatten():
-            if (
-                piece is not None
-                and int == type_
-                and int == version
-                and piece.team == team
-            ):
-                wanted_piece = piece
-                break
-
-        return wanted_piece
-
     def invert_move(self, move):
         if self.invert_moves:
             from_, to_ = move
@@ -140,6 +100,12 @@ class AlphaZero(RLAgent):
                 (game_size - 1 - to_[0], game_size - 1 - to_[1]),
             )
         return move
+
+    def choose_action(self, state):
+        self.model.eval()
+        state_action_values = self.model(state).view(-1)
+        action = self.action_map[int(torch.argmax(state_action_values))]
+        return action
 
     def force_canonical(self, player):
         """
@@ -162,9 +128,9 @@ class AlphaZero(RLAgent):
                     piece.team ^= 1
                     piece.position = pos
 
-    def state_representation(self, player):
+    def state_representation(self, player: Player):
         conditions = []
-        for team in [player, (player + 1) % 2]:
+        for team in [player, player.opponent()]:
             # flag, 1 , 10, bombs
             conditions += [
                 (team, t, v, h) for (t, v, h) in zip([0, 1, 10, 11], [1] * 4, [0] * 4)
@@ -174,7 +140,9 @@ class AlphaZero(RLAgent):
                 (team, t, v, h) for (t, v, h) in zip([2] * 3, [1, 2, 3], [0] * 3)
             ]
             # 3's, 2 versions
-            conditions += [(team, t, v, h) for (t, v, h) in zip([3] * 2, [1, 2], [0] * 2)]
+            conditions += [
+                (team, t, v, h) for (t, v, h) in zip([3] * 2, [1, 2], [0] * 2)
+            ]
             # all own hidden pieces
             conditions += [(team, None, None, 1)]
 
@@ -183,6 +151,31 @@ class AlphaZero(RLAgent):
 
         return conditions
 
+    @staticmethod
+    def check(piece, team, type_, version, hidden):
+        if team == 0:
+            if not hidden:
+                # if it's about team 0, the 'hidden' status is unimportant
+                return 1 * (piece.team == team and int == type_ and int == version)
+            else:
+                # hidden is only important for the single layer that checks for
+                # only this quality!
+                return 1 * (piece.team == team and piece.hidden == hidden)
+
+        elif team == 1:
+            # for team 1 we only get the info about type and version if it isn't hidden
+            # otherwise it will fall into the 'hidden' layer
+            if not hidden:
+                if piece.hidden:
+                    return 0
+                else:
+                    return 1 * (piece.team == team and int == type_ and int == version)
+            else:
+                return 1 * (piece.team == team and piece.hidden)
+        else:
+            # only obstacle should reach here
+            return 1 * (piece.team == team)
+
 
 class OmniscientStratego(AlphaZero):
     def __init__(self, team):
@@ -190,7 +183,7 @@ class OmniscientStratego(AlphaZero):
 
     def decide_move(self):
         state = self.state_to_tensor()
-        action = self.select_action(state)
+        action = self.choose_action(state)
         if action is not None:
             move = self.action_to_move(action)
         else:

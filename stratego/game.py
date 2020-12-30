@@ -1,63 +1,18 @@
-import copy
-
+from .learning import RewardToken
 from .piece import Piece
-from copy import deepcopy
-from typing import Tuple, Optional, Dict, List, Sequence
-
-import numpy as np
-
-from .utils import *
-from collections import defaultdict
-from .agent import Agent, RLAgent
+from .agent.base import Agent, RLAgent
 from .state import State
 from .logic import Logic
-from .spatial import Position, Board, Move
-from .game_defs import Status, Player
+from .spatial import Position, Move, Board
+from .game_defs import Status, Player, get_game_specs, Team, HookPoint
+from .utils import slice_kwargs
 
-from inspect import signature
+from copy import deepcopy
+from typing import Tuple, Optional, Dict, List, Sequence, Callable, Iterable
+import numpy as np
+from collections import defaultdict
+
 import matplotlib.pyplot as plt
-
-
-def get_game_defaults(board_size: str):
-    board_size = board_size.lower()
-    if board_size in ["s", "small"]:
-        types_available = np.array([0, 1] + [2] * 3 + [3] * 2 + [10] + [11] * 2)
-        obstacle_positions = [(2, 2)]
-        game_size = 5
-    elif board_size in ["m", "medium"]:
-        types_available = np.array(
-            [0, 1] + [2] * 5 + [3] * 3 + [4] * 3 + [5] * 2 + [6] + [10] + [11] * 4
-        )
-        obstacle_positions = [(3, 1), (3, 5)]
-        game_size = 7
-    elif board_size in ["l", "large"]:
-        types_available = np.array(
-            [0, 1]
-            + [2] * 8
-            + [3] * 5
-            + [4] * 4
-            + [5] * 4
-            + [6] * 4
-            + [7] * 3
-            + [8] * 2
-            + [9] * 1
-            + [10]
-            + [11] * 6
-        )
-        obstacle_positions = [
-            (4, 2),
-            (5, 2),
-            (4, 3),
-            (5, 3),
-            (4, 6),
-            (5, 6),
-            (4, 7),
-            (5, 7),
-        ]
-        game_size = 10
-    else:
-        raise ValueError(f"Board size {board_size} not supported.")
-    return types_available, obstacle_positions, game_size
 
 
 class Game:
@@ -65,46 +20,40 @@ class Game:
         self,
         agent0: Agent,
         agent1: Agent,
-        state: Optional[State] =None,
-        board_size: str = "l",
+        state: Optional[State] = None,
+        game_size: str = "l",
         fixed_setups: Tuple[Optional[np.ndarray], Optional[np.ndarray]] = (None, None),
     ):
-        self.board_size = board_size
-        self.agents = (agent0, agent1)
+        self.game_size = game_size
+        self.agents: Dict[Player, Agent] = {
+            Player(agent0.team): agent0,
+            Player(agent1.team): agent1,
+        }
+        self.hook_handler: Dict[HookPoint, List[Callable]] = defaultdict(list)
+        self._gather_hooks(agents=(agent0, agent1))
         self.fixed_setups = fixed_setups
 
-        (
-            self.types_available,
-            self.obstacle_positions,
-            self.game_size,
-        ) = get_game_defaults(board_size)
+        (self.token_count, self.obstacle_positions, self.game_size) = get_game_specs(
+            game_size
+        )
 
-        self.history = None
-        self.state = state
+        self.state: State
         if state is not None:
-            Logic.compute_dead_pieces(state.board, self.types_available)
+            self.state = state
+            Logic.compute_dead_pieces(state.board, self.token_count)
         else:
             self.reset()
-
-        # reinforcement learning attributes
-        self.score = 0
-        self.reward = 0
-        self.steps = 0
-        self.death_steps = None
-        self.illegal_moves = 0
-
-        self.reward_illegal = 0  # punish illegal moves
-        self.reward_step = 0  # negative reward per agent step
-        self.reward_win = 1  # win game
-        self.reward_loss = -1  # lose game
-        self.reward_kill = 0  # kill enemy figure reward
-        self.reward_die = 0  # lose to enemy figure
 
     def __str__(self):
         return np.array_repr(self.state.board)
 
     def __hash__(self):
         return hash(str(self))
+
+    def _gather_hooks(self, agents: Iterable[Agent]):
+        for agent in agents:
+            for hook_point, hooks in agent.hooks.items():
+                self.hook_handler[hook_point].extend(hooks)
 
     def _build_board_from_setups(self, setup0, setup1):
         board = np.empty((self.game_size, self.game_size), dtype=object)
@@ -126,114 +75,136 @@ class Game:
     def reset(self):
         setup0 = self.fixed_setups[0]
         if setup0 is None:
-            setup0 = self._draw_random_setup(self.types_available, 0, self.game_size)
+            setup0 = self._draw_random_setup(
+                self.token_count, Player(0), self.game_size
+            )
         setup1 = self.fixed_setups[1]
         if setup1 is None:
-            setup1 = self._draw_random_setup(self.types_available, 1, self.game_size)
+            setup1 = self._draw_random_setup(
+                self.token_count, Player(1), self.game_size
+            )
 
         board_arr = self._build_board_from_setups(setup0, setup1)
 
         self.state = State(Board(board_arr))
 
-        self.history = History()
-
         return self
 
     def run_game(self, show=False, **kwargs):
         game_over = False
-        rewards = None
         block = kwargs.pop("block", False)
-        kwargs_print = {
-            p.name: kwargs[p.name]
-            for p in signature(Board.print_board).parameters.values()
-            if p in kwargs
-        }
-        kwargs_run_step = {
-            p.name: kwargs[p.name]
-            for p in signature(self.run_step).parameters.values()
-            if p in kwargs
-        }
+        kwargs_print = slice_kwargs(Board.print_board, kwargs)
+        kwargs_run_step = slice_kwargs(self.run_step, kwargs)
         if show:
-
+            # if the game progress should be shown, then we refer to the board print method.
             def print_board():
                 self.state.board.print_board(**kwargs_print)
                 plt.show(block=block)
 
         else:
-
+            # if the game progress should not be shown, then we simply pass over this step.
             def print_board():
                 pass
 
         if (status := Logic.get_status(self.state)) != Status.ongoing:
-            rewards = status
             game_over = True
+
+        self._trigger_hooks(HookPoint.pre_run, self.state)
 
         while not game_over:
             print_board()
-            rewards = self.run_step(**kwargs_run_step)
-            if rewards != Status.ongoing:
+            status = self.run_step(**kwargs_run_step)
+            if status != Status.ongoing:
                 game_over = True
         print_board()
-        return rewards
 
-    def run_step(self, move: Optional[Move] = None, **kwargs):
+        self._trigger_hooks(HookPoint.post_run, self.state, status)
+
+        return status
+
+    def run_step(self, move: Optional[Move] = None):
+        """
+        Execute one step of the game (i.e. the action decided by the active player).
+
+        Parameters
+        ----------
+        move: Move (optional),
+            hijack parameter, if the move should be decided from outside and not the active agent itself.
+
+        Returns
+        -------
+        Status,
+            the current status of the game.
+        """
         player = self.state.active_player
         agent = self.agents[player]
 
-        if move is None:
-            move = agent.decide_move(self.state, **kwargs)
+        self._trigger_hooks(HookPoint.pre_move_decision, self.state)
 
-        # test if agent can't move anymore
         if move is None:
-            return Status.draw
+            move = agent.decide_move(self.state.get_info_state(player))
+
+        self._trigger_hooks(HookPoint.post_move_decision, self.state, move)
 
         if not Logic.is_legal_move(self.state.board, move):
-            self.reward_agent(agent, self.reward_illegal)
-            return Status.win_red if player == Player.Team.blue else Status.win_blue
+            self.reward_agent(agent, RewardToken.illegal)
+            return Status.win_red if player.team == Team.blue else Status.win_blue
 
-        self.history.commit_move(
+        self.state.history.commit_move(
             self.state.board,
             move,
             player,
         )
 
+        self._trigger_hooks(HookPoint.pre_move_execution, self.state, move)
+
         fight_status = Logic.execute_move(self.state, move)  # execute agent's choice
+
+        self._trigger_hooks(
+            HookPoint.post_move_execution, self.state, move, fight_status
+        )
 
         if fight_status is not None:
             if fight_status == 1:
-                self.reward_agent(agent, self.reward_kill)
+                self.reward_agent(agent, RewardToken.kill)
             elif fight_status == -1:
-                self.reward_agent(agent, -self.reward_kill)
+                self.reward_agent(agent, RewardToken.die)
+            else:
+                self.reward_agent(agent, RewardToken.kill_mutually)
 
         # test if game is over
-        if Logic.get_status(self.state) != Status.ongoing:
-            return self.state.terminal
+        if (status := Logic.get_status(self.state)) != Status.ongoing:
+            return status
 
         self.state.move_counter += 1
 
         return Status.ongoing
 
+    def _trigger_hooks(self, hook_point: HookPoint, *args, **kwargs):
+        for hook in self.hook_handler[hook_point]:
+            hook(*args, **kwargs)
+
     @staticmethod
-    def _draw_random_setup(types_available: Sequence[int], player: Player, game_size: int):
+    def _draw_random_setup(token_count: Sequence[int], player: Player, game_size: int):
         """
-        Draw a random setup from the set of types types_available after placing the flag
+        Draw a random setup from the set of types token_count after placing the flag
         somewhere in the last row of the board of the side of 'team', or behind the obstacle.
-        
+
         Parameters
         ----------
-        types_available:    list,
+        token_count:    list,
             piece types to draw from
         player: Player,
         game_size: int,
             the board size
-        
+
         Returns
         -------
         np.ndarray,
             the setup, in numpy array form
         """
-        nr_pieces = len(types_available) - 1
-        types_available = [type_ for type_ in types_available if not type_ == 0]
+        nr_pieces = len(token_count) - 1
+        token_count = [type_ for type_ in token_count if not type_ == 0]
         if game_size == 5:
             row_offset = 2
         elif game_size == 7:
@@ -251,7 +222,7 @@ class Game:
             )
             setup_agent[flag_pos_inv] = Piece(0, 0, Position(flag_pos[0], flag_pos[1]))
 
-            types_draw = np.random.choice(types_available, nr_pieces, replace=False)
+            types_draw = np.random.choice(token_count, nr_pieces, replace=False)
             positions_agent_0 = [
                 (i, j)
                 for i in range(game_size - row_offset, game_size)
@@ -274,7 +245,7 @@ class Game:
             )
             setup_agent[flag_pos_inv] = Piece(0, 1, Position(flag_pos[0], flag_pos[1]))
 
-            types_draw = np.random.choice(types_available, nr_pieces, replace=False)
+            types_draw = np.random.choice(token_count, nr_pieces, replace=False)
             positions_agent_1 = [
                 (i, j) for i in range(row_offset) for j in range(game_size)
             ]
@@ -286,45 +257,6 @@ class Game:
         return setup_agent
 
     @staticmethod
-    def reward_agent(agent: RLAgent, reward: float):
+    def reward_agent(agent: Agent, reward: RewardToken):
         if isinstance(agent, RLAgent):
             agent.add_reward(reward)
-
-
-class History:
-
-    def __init__(self):
-        self.turns: List[int] = []
-        self.move: Dict[int, Move] = dict()
-        self.team: Dict[int, int] = dict()
-        self.pieces: Dict[int, Tuple[Piece, Piece]] = dict()
-
-    def undo_last_n_turns(self, n: int, board: Board):
-        """
-        Undo the last n moves in the memory.
-        board:  Board,
-            the state on which to undo the last rounds
-        n:  int,
-            number of moves to undo
-        """
-        for t in range(n):
-            turn = self.turns[-1] - t
-            move, (piece_from, piece_to) = self.move[turn], self.pieces[turn]
-            board[move.from_] = piece_from
-            board[move.to_] = piece_to
-            piece_from.change_position(move.from_)
-            piece_to.change_position(move.to_)
-
-    def commit_move(self, board: Board, move: Move, turn: int):
-        """
-        Commit the current move to history.
-        """
-        from_ = move.from_
-        to_ = move.to_
-        self.move[turn] = move
-        self.pieces[turn] = copy.deepcopy(board[from_]), copy.deepcopy(board[to_])
-        self.team[turn] = turn % 2
-
-
-
-
