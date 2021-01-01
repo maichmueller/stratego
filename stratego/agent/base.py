@@ -9,16 +9,22 @@ from scipy import spatial
 # from scipy import optimize
 
 import torch
-from collections import Counter, defaultdict
+from collections import defaultdict
 from abc import ABC
 
-from stratego.game_defs import Team, Token, HookPoint, get_game_specs, GameSpecification
+from stratego.engine import (
+    State,
+    Logic,
+    Team,
+    HookPoint,
+    GameSpecification,
+    Board,
+    Move,
+    Position,
+    Piece,
+)
+from stratego.engine.action import ActionMap, Action
 from stratego.learning import RewardToken
-from stratego.piece import Piece, ShadowPiece
-from stratego.action import ActionMap, Action
-from stratego.spatial import Board, Move, Position
-
-from stratego.state import State
 
 
 class Agent(ABC):
@@ -30,14 +36,17 @@ class Agent(ABC):
         self.team = team
         self.hooks: Dict[HookPoint, List[Callable]] = defaultdict(list)
 
-    def decide_move(self, state: State) -> Move:
+    def decide_move(self, state: State, logic: Logic = Logic()) -> Move:
         """
-        Decide the move to make for the given state of the game.
+        Decide the move to make for the given state of the engine.
 
         Parameters
         ----------
+
         state: State,
             the state on which the decision is to be made.
+        logic: Logic,
+            the logic to use in the engine. Can be changed to vary the engine mode if desirable.
 
         Returns
         -------
@@ -62,12 +71,10 @@ class RLAgent(Agent, ABC):
         self,
         team: Team,
         action_map: ActionMap,
-        representation_dim: int,
         model: torch.nn.Module,
         reward_map: Dict[RewardToken, float],
     ):
         super().__init__(team=team)
-        self.representation_dim = representation_dim
         self.action_map = action_map
         self.action_dim = len(action_map.actions)
         self.model = model
@@ -201,13 +208,13 @@ class MCAgent(Agent, ABC):
             int = sample[idx]
             if int in [0, 11]:
                 piece.can_move = False
-                piece.move_radius = 0
+                piece.move_range = 0
             elif int == 2:
                 piece.can_move = True
-                piece.move_radius = float("inf")
+                piece.move_range = float("inf")
             else:
                 piece.can_move = True
-                piece.move_radius = 1
+                piece.move_range = 1
             piece.hidden = False
             board[piece.position] = piece
         return board

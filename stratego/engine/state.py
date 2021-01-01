@@ -1,43 +1,43 @@
 import copy
 from typing import Sequence, Optional, Tuple, Dict, List
 
-from .game_defs import Status, Player, Token, Team
-from .piece import Piece, ShadowPiece
-from .spatial import Position, Move
-from .spatial import Board
+from .game_defs import Status, Token, Team
+from .piece import Piece, ShadowPiece, Obstacle
+from .position import Position, Move
+from .board import Board
 
 import numpy as np
-from collections import defaultdict, Counter
 
 
 class History:
     def __init__(self):
         self.turns: List[int] = []
         self.move: Dict[int, Move] = dict()
-        self.team: Dict[int, int] = dict()
+        self.team: Dict[int, Team] = dict()
         self.pieces: Dict[int, Tuple[Piece, Piece]] = dict()
 
-    def commit_move(self, board: Board, move: Move, player: player):
+    def commit_move(self, board: Board, move: Move, turn: int):
         """
         Commit the current move to history.
         """
         from_ = move.from_
         to_ = move.to_
-        self.move[player] = move
-        self.pieces[player] = copy.deepcopy(board[from_]), copy.deepcopy(board[to_])
-        self.team[player] = player % 2
+        self.move[turn] = move
+        self.pieces[turn] = copy.deepcopy(board[from_]), copy.deepcopy(board[to_])
+        self.team[turn] = Team(turn % 2)
 
 
 class State:
     def __init__(
         self,
         board: Board,
+        starting_team: Team,
         piece_by_id_map: Dict[Tuple[Token, int, Team], Piece] = None,
         history: Optional[History] = None,
         move_count: int = 0,
         status: Status = Status.ongoing,
         canonical: bool = True,
-        dead_pieces: Dict[Player, Dict[int, int]] = None,
+        dead_pieces: Dict[Team, Dict[int, int]] = None,
     ):
         self.board = board
         self.piece_by_id: Dict[Tuple[Token, int, Team], Piece] = (
@@ -50,8 +50,9 @@ class State:
 
         self._is_canonical: bool = canonical
 
-        self._move_counter: int = move_count
-        self.active_player: Player = Player(move_count)
+        self._turn_counter: int = move_count
+        self.starting_team: Team = starting_team
+        self.active_team: Team = Team((move_count + int(self.starting_team)) % 2)
 
         self.status: Status = status
         self.status_checked: bool = False
@@ -59,7 +60,7 @@ class State:
         if dead_pieces is not None:
             self.dead_pieces = dead_pieces
         else:
-            self.dead_pieces = {Player(0): dict(), Player(1): dict()}
+            self.dead_pieces = {Team(0): dict(), Team(1): dict()}
 
     def __str__(self):
         return np.array_repr(self.board)
@@ -68,19 +69,20 @@ class State:
         return hash(str(self))
 
     @property
-    def move_counter(self):
-        return self._move_counter
+    def turn_counter(self):
+        return self._turn_counter
 
-    @move_counter.setter
-    def move_counter(self, count: int):
-        self._move_counter = count
-        self.active_player = Player(count)
+    @turn_counter.setter
+    def turn_counter(self, count: int):
+        self._turn_counter = count
+        self.active_team = Team((count + int(self.starting_team)) % 2)
 
-    def get_info_state(self, player: Player):
+    def get_info_state(self, team: Team):
         return State(
-            self.board.get_info_board(player),
+            self.board.get_info_board(team),
+            starting_team=self.starting_team,
             history=self.history,
-            move_count=self.move_counter,
+            move_count=self.turn_counter,
             dead_pieces=self.dead_pieces,
         )
 
@@ -114,7 +116,7 @@ class State:
 
         return piece_by_id
 
-    def force_canonical(self, player):
+    def force_canonical(self, player: Team):
         """
         Make the given player be team 0.
         :param player: int, the team to convert to
@@ -131,6 +133,6 @@ class State:
             self.board = np.flip(self.board)
             for pos, piece in np.ndenumerate(self.board):
                 # flip all team attributes
-                if piece is not None and piece.team != 99:
-                    piece.team ^= 1
+                if piece is not None and not isinstance(piece, Obstacle):
+                    piece.team += 1
                     piece.position = pos

@@ -1,8 +1,8 @@
-from stratego.action import ActionMap
+from stratego.engine.action import ActionMap
 from stratego.agent import RLAgent
 import torch
 import numpy as np
-from stratego import Player, State, Logic
+from stratego.engine import Team, State, Logic
 from stratego.learning import models
 
 
@@ -10,10 +10,12 @@ class AlphaZero(RLAgent):
 
     _representation_filters = []
 
-    def __init__(self, team, action_map: ActionMap, device="cpu"):
+    def __init__(self, team, action_map: ActionMap, logic: Logic = Logic(), device="cpu"):
         super().__init__(team=team, action_map=action_map)
         self.canonical_teams = True
         self.state_dim = len(self.state_representation())
+        self.device = device
+        self.logic = logic
 
         filter_amounts = np.array([128, 128, 128, 128])
         maxpool_layer_pos = np.array([0, 1, 0, 0])
@@ -42,8 +44,8 @@ class AlphaZero(RLAgent):
             start_layer_exponent=start_layer_exponent,
             activation_function=activation_function,
         )
-        self.model = models.NNetWrapper(
-            game_size=game_size, nnet=nnet, action_dim=self.action_dim
+        self.model = models.NetworkWrapper(
+            game_size=game_size, net=nnet, action_dim=self.action_dim
         )
         # self.model = models.Linear(self.state_dim, self.action_dim)
         # self.model.load_state_dict(torch.load('./saved_models/stratego_best.pkl'))
@@ -54,12 +56,12 @@ class AlphaZero(RLAgent):
         board_state = self.state_to_tensor(state)
         pred, _ = self.model.predict(board_state)
 
-        actions_mask = Logic.actions_mask(self.board, 0, relation_dict, actions)
+        actions_mask = logic.mask_actions(self.board, 0, relation_dict, actions)
         pred = actions_mask * pred
 
         if actions_mask.sum() == 0:
             self.force_canonical(0)
-            # no more legal moves -> lost
+            # no more legal moves
             return None
 
         act = np.argmax(pred)
@@ -128,7 +130,7 @@ class AlphaZero(RLAgent):
                     piece.team ^= 1
                     piece.position = pos
 
-    def state_representation(self, player: Player):
+    def state_representation(self, player: Team):
         conditions = []
         for team in [player, player.opponent()]:
             # flag, 1 , 10, bombs

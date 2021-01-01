@@ -1,9 +1,8 @@
-from .game_defs import Status, MAX_NR_TURNS, Player, Token, Team
-from .utils.utils import Singleton
+from .game_defs import Status, MAX_NR_TURNS, Token, Team, BattleMatrix
 from .state import State
-from .piece import Piece
-from .spatial import Position, Move
-from .spatial import Board
+from .position import Position, Move
+from .board import Board
+from stratego.utils import Singleton
 
 from typing import Sequence, Dict, Tuple, Optional, Iterator, Union
 from scipy import spatial
@@ -66,7 +65,7 @@ class Logic(metaclass=Singleton):
 
         state.update_board((to_pos, from_pos), to_from_update)
 
-        state.move_counter += 1
+        state.turn_counter += 1
         return fight_outcome
 
     @staticmethod
@@ -92,31 +91,29 @@ class Logic(metaclass=Singleton):
                 # if the target position held an actual piece, then there was a fight and
                 # we need to update the dead pieces dictionary.
                 if fight := BattleMatrix[piece_from.token, piece_to.token] == 0:
-                    state.dead_pieces[Player(piece_from.team)][piece_from.token] -= 1
-                    state.dead_pieces[Player(piece_to.team)][piece_to.token] -= 1
+                    state.dead_pieces[Team(piece_from.team)][piece_from.token] -= 1
+                    state.dead_pieces[Team(piece_to.team)][piece_to.token] -= 1
                 elif fight == 1:
                     # the defender lost back then, so now remove it from the dead pieces
-                    state.dead_pieces[Player(piece_to.team)][piece_to.token] -= 1
+                    state.dead_pieces[Team(piece_to.team)][piece_to.token] -= 1
                 else:
                     # the attacker lost back then, so now remove it from the dead pieces
-                    state.dead_pieces[Player(piece_from.team)][piece_from.token] -= 1
+                    state.dead_pieces[Team(piece_from.team)][piece_from.token] -= 1
 
-    @staticmethod
-    def get_status(state: State, force=False, **kwargs):
+    def get_status(self, state: State, force=False, **kwargs):
         if force or not state.status_checked:
-            Logic.check_terminal(state, **kwargs)
+            self.check_terminal(state, **kwargs)
         return state.status
 
-    @staticmethod
-    def check_terminal(state: State, flag_only=False, turn=0):
-        for player in (Player(0), Player(1)):
+    def check_terminal(self, state: State, flag_only=False, turn=0):
+        for player in (Team(0), Team(1)):
             if state.dead_pieces[player][Token.flag] == 1:
                 state.status = Status[player]
 
         if not flag_only:
-            if state.move_counter > MAX_NR_TURNS or any(
+            if state.turn_counter > MAX_NR_TURNS or any(
                 not all(
-                    move is None for move in Logic.possible_moves_iter(state.board, t)
+                    move is None for move in self.possible_moves_iter(state.board, t)
                 )
                 for t in (turn, (turn + 1) % 2)
             ):
@@ -174,8 +171,9 @@ class Logic(metaclass=Singleton):
 
         return True
 
-    @staticmethod
-    def possible_moves_iter(board: Board, team: Union[int, Team]) -> Iterator[Move]:
+    def possible_moves_iter(
+        self, board: Board, team: Union[int, Team]
+    ) -> Iterator[Move]:
         """
         Returns
         -------
@@ -187,7 +185,7 @@ class Logic(metaclass=Singleton):
         for pos, piece in np.ndenumerate(board):
             if piece is not None and piece.team == team and piece.can_move:
                 # board position has a movable piece of your team on it
-                for move in Logic.moves_iter(piece.token, pos, game_size):
+                for move in self.moves_iter(piece.token, pos, game_size):
                     if Logic.is_legal_move(board, move):
                         yield move
 
@@ -210,8 +208,8 @@ class Logic(metaclass=Singleton):
             dead_pieces[team] = dead_pieces_dict
         return dead_pieces
 
-    @staticmethod
     def moves_iter(
+        self,
         token: Union[Token, int],
         pos: Position,
         game_size: int,
@@ -231,11 +229,11 @@ class Logic(metaclass=Singleton):
 
         else:
             assert (
-                    len(distances) == 4
+                len(distances) == 4
             ), "A sequence of 4 distances needs to be passed, since the grid has 4-adjacency."
 
         for (i, j), stop in zip(
-            Logic.four_adjacency,
+            self.four_adjacency,
             distances,
         ):
             for k in range(1, stop):

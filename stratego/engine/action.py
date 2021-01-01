@@ -1,11 +1,11 @@
-from . import State
-from .game_defs import Token, Team
-from .spatial import Position, Move
-from .spatial import Board
+from .state import State
+from .game_defs import Token, Team, GameSpecification
+from .position import Position, Move
+from .board import Board
 from .logic import Logic
 from .piece import Piece
 
-from typing import Sequence, Tuple, Dict, Union, List
+from typing import Tuple, Dict, Union, List
 from functools import singledispatchmethod
 import numpy as np
 
@@ -34,9 +34,10 @@ class Action:
 
 
 class ActionMap:
-    def __init__(self, token_count: Dict[Token, int], game_size: int):
-        self.game_size = game_size
-        self.actions, self.actions_inverse = self._build_action_map(token_count)
+
+    def __init__(self, game_specs: GameSpecification):
+        self.specs = game_specs
+        self.actions, self.actions_inverse = self._build_action_map(self.specs.token_count)
         self.action_dim = len(self.actions)
 
     @singledispatchmethod
@@ -64,7 +65,7 @@ class ActionMap:
 
             moves: List[Move] = list(
                 Logic.moves_iter(
-                    token, Position(0, 0), self.game_size, distances=[self.game_size] * 4
+                    token, Position(0, 0), self.specs.game_size, distances=[self.specs.game_size] * 4
                 )
             )
 

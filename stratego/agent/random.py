@@ -14,8 +14,8 @@ class Random(Agent):
     def __init__(self, team):
         super(Random, self).__init__(team=team)
 
-    def decide_move(self, state: State, *args, **kwargs):
-        all_moves = list(Logic.possible_moves_iter(state.board, self.team))
+    def decide_move(self, state: State, logic: Logic = Logic()):
+        all_moves = list(logic.possible_moves_iter(state.board, self.team))
         if not all_moves:
             return None
         else:

@@ -1,16 +1,17 @@
-from .learning import RewardToken
-from .piece import Piece
-from .agent.base import Agent, RLAgent
-from .state import State
-from .logic import Logic
-from .spatial import Position, Move, Board
-from .game_defs import Status, Player, get_game_specs, Team, HookPoint
-from .utils import slice_kwargs
+from stratego.learning import RewardToken
+from stratego.engine.piece import Piece, Obstacle
+from stratego.agent import Agent, RLAgent
+from stratego.engine.state import State
+from stratego.engine.logic import Logic
+from stratego.engine.position import Position, Move
+from stratego.engine.board import Board
+from stratego.engine.game_defs import Status, Team, HookPoint, GameSpecification
+from stratego.utils import slice_kwargs
 
-from copy import deepcopy
-from typing import Tuple, Optional, Dict, List, Sequence, Callable, Iterable
+from typing import Optional, Dict, List, Sequence, Callable, Iterable, Union
 import numpy as np
 from collections import defaultdict
+import itertools
 
 import matplotlib.pyplot as plt
 
@@ -22,27 +23,36 @@ class Game:
         agent1: Agent,
         state: Optional[State] = None,
         game_size: str = "l",
-        fixed_setups: Tuple[Optional[np.ndarray], Optional[np.ndarray]] = (None, None),
+        logic: Logic = Logic(),
+        fixed_setups: Dict[Team, Optional[Iterable[Piece]]] = None,
+        seed: Optional[Union[np.random.Generator, int]] = None,
     ):
-        self.game_size = game_size
-        self.agents: Dict[Player, Agent] = {
-            Player(agent0.team): agent0,
-            Player(agent1.team): agent1,
+        self.agents: Dict[Team, Agent] = {
+            Team(agent0.team): agent0,
+            Team(agent1.team): agent1,
         }
         self.hook_handler: Dict[HookPoint, List[Callable]] = defaultdict(list)
         self._gather_hooks(agents=(agent0, agent1))
-        self.fixed_setups = fixed_setups
+        self.fixed_setups: Dict[Team, Optional[Sequence[Piece]]] = dict()
+        for team in Team:
+            if setup := fixed_setups[team] is not None:
+                self.fixed_setups[team] = tuple(setup)
+            else:
+                self.fixed_setups[team] = None
 
-        (self.token_count, self.obstacle_positions, self.game_size) = get_game_specs(
-            game_size
-        )
+        self.specs: GameSpecification = GameSpecification(game_size)
 
+        self.logic = logic
         self.state: State
         if state is not None:
             self.state = state
-            Logic.compute_dead_pieces(state.board, self.token_count)
+            self.state.dead_pieces = logic.compute_dead_pieces(
+                state.board, self.specs.token_count
+            )
         else:
             self.reset()
+
+        self.rng_state = np.random.default_rng(seed)
 
     def __str__(self):
         return np.array_repr(self.state.board)
@@ -55,39 +65,11 @@ class Game:
             for hook_point, hooks in agent.hooks.items():
                 self.hook_handler[hook_point].extend(hooks)
 
-    def _build_board_from_setups(self, setup0, setup1):
-        board = np.empty((self.game_size, self.game_size), dtype=object)
-
-        for setup in (setup0, setup1):
-            pieces_version = defaultdict(int)
-            for idx, piece in np.ndenumerate(setup):
-                if piece is not None:
-                    pieces_version[int] += 1
-                    board[piece.position] = deepcopy(piece)
-
-        for pos in self.obstacle_positions:
-            obs = Piece(99, 99, Position(pos[0], pos[1]))
-            obs.hidden = False
-            board[pos] = obs
-
-        return board
-
     def reset(self):
-        setup0 = self.fixed_setups[0]
-        if setup0 is None:
-            setup0 = self._draw_random_setup(
-                self.token_count, Player(0), self.game_size
-            )
-        setup1 = self.fixed_setups[1]
-        if setup1 is None:
-            setup1 = self._draw_random_setup(
-                self.token_count, Player(1), self.game_size
-            )
-
-        board_arr = self._build_board_from_setups(setup0, setup1)
-
-        self.state = State(Board(board_arr))
-
+        self.state = State(
+            Board(self.draw_board()),
+            starting_team=self.rng_state.choice([Team.blue, Team.red]),
+        )
         return self
 
     def run_game(self, show=False, **kwargs):
@@ -96,17 +78,17 @@ class Game:
         kwargs_print = slice_kwargs(Board.print_board, kwargs)
         kwargs_run_step = slice_kwargs(self.run_step, kwargs)
         if show:
-            # if the game progress should be shown, then we refer to the board print method.
+            # if the engine progress should be shown, then we refer to the board print method.
             def print_board():
                 self.state.board.print_board(**kwargs_print)
                 plt.show(block=block)
 
         else:
-            # if the game progress should not be shown, then we simply pass over this step.
+            # if the engine progress should not be shown, then we simply pass over this step.
             def print_board():
                 pass
 
-        if (status := Logic.get_status(self.state)) != Status.ongoing:
+        if (status := self.logic.get_status(self.state)) != Status.ongoing:
             game_over = True
 
         self._trigger_hooks(HookPoint.pre_run, self.state)
@@ -124,7 +106,7 @@ class Game:
 
     def run_step(self, move: Optional[Move] = None):
         """
-        Execute one step of the game (i.e. the action decided by the active player).
+        Execute one step of the engine (i.e. the action decided by the active player).
 
         Parameters
         ----------
@@ -134,9 +116,9 @@ class Game:
         Returns
         -------
         Status,
-            the current status of the game.
+            the current status of the engine.
         """
-        player = self.state.active_player
+        player = self.state.active_team
         agent = self.agents[player]
 
         self._trigger_hooks(HookPoint.pre_move_decision, self.state)
@@ -146,19 +128,21 @@ class Game:
 
         self._trigger_hooks(HookPoint.post_move_decision, self.state, move)
 
-        if not Logic.is_legal_move(self.state.board, move):
+        if not self.logic.is_legal_move(self.state.board, move):
             self.reward_agent(agent, RewardToken.illegal)
-            return Status.win_red if player.team == Team.blue else Status.win_blue
+            return Status.win_red if player == Team.blue else Status.win_blue
 
         self.state.history.commit_move(
             self.state.board,
             move,
-            player,
+            self.state.turn_counter,
         )
 
         self._trigger_hooks(HookPoint.pre_move_execution, self.state, move)
 
-        fight_status = Logic.execute_move(self.state, move)  # execute agent's choice
+        fight_status = self.logic.execute_move(
+            self.state, move
+        )  # execute agent's choice
 
         self._trigger_hooks(
             HookPoint.post_move_execution, self.state, move, fight_status
@@ -172,11 +156,11 @@ class Game:
             else:
                 self.reward_agent(agent, RewardToken.kill_mutually)
 
-        # test if game is over
-        if (status := Logic.get_status(self.state)) != Status.ongoing:
+        # test if engine is over
+        if (status := self.logic.get_status(self.state)) != Status.ongoing:
             return status
 
-        self.state.move_counter += 1
+        self.state.turn_counter += 1
 
         return Status.ongoing
 
@@ -184,77 +168,64 @@ class Game:
         for hook in self.hook_handler[hook_point]:
             hook(*args, **kwargs)
 
-    @staticmethod
-    def _draw_random_setup(token_count: Sequence[int], player: Player, game_size: int):
+    def draw_board(self):
         """
-        Draw a random setup from the set of types token_count after placing the flag
-        somewhere in the last row of the board of the side of 'team', or behind the obstacle.
-
-        Parameters
-        ----------
-        token_count:    list,
-            piece types to draw from
-        player: Player,
-        game_size: int,
-            the board size
+        Draw a random board according to the current engine specification.
 
         Returns
         -------
         np.ndarray,
             the setup, in numpy array form
         """
-        nr_pieces = len(token_count) - 1
-        token_count = [type_ for type_ in token_count if not type_ == 0]
-        if game_size == 5:
-            row_offset = 2
-        elif game_size == 7:
-            row_offset = 3
-        else:
-            row_offset = 4
-        setup_agent = np.empty((row_offset, game_size), dtype=object)
-        if player == 0:
-            flag_positions = [(game_size - 1, j) for j in range(game_size)]
-            flag_choice = np.random.choice(range(len(flag_positions)), 1)[0]
-            flag_pos = flag_positions[flag_choice]
-            flag_pos_inv = (
-                game_size - 1 - flag_positions[flag_choice][0],
-                game_size - 1 - flag_positions[flag_choice][1],
-            )
-            setup_agent[flag_pos_inv] = Piece(0, 0, Position(flag_pos[0], flag_pos[1]))
+        rng = self.rng_state
+        token_count = self.specs.token_count
+        all_tokens = list(token_count.keys())
+        token_freqs = list(token_count.values())
 
-            types_draw = np.random.choice(token_count, nr_pieces, replace=False)
-            positions_agent_0 = [
-                (i, j)
-                for i in range(game_size - row_offset, game_size)
-                for j in range(game_size)
-            ]
-            positions_agent_0.remove(flag_positions[flag_choice])
+        def erase(list_cont, i):
+            return list_cont[:i] + list_cont[i + 1 :]
 
-            for idx in range(nr_pieces):
-                pos = positions_agent_0[idx]
-                setup_agent[(game_size - 1 - pos[0], game_size - 1 - pos[1])] = Piece(
-                    types_draw[idx], 0, Position(pos[0], pos[1])
-                )
-        elif player == 1:
-            flag_positions = [(0, j) for j in range(game_size)]
-            flag_choice = np.random.choice(range(len(flag_positions)), 1)[0]
-            flag_pos = flag_positions[flag_choice]
-            flag_pos_inv = (
-                game_size - 1 - flag_positions[flag_choice][0],
-                game_size - 1 - flag_positions[flag_choice][1],
-            )
-            setup_agent[flag_pos_inv] = Piece(0, 1, Position(flag_pos[0], flag_pos[1]))
+        board = Board(
+            np.empty((self.specs.game_size, self.specs.game_size), dtype=object)
+        )  # inits all entries to None
+        for team in Team:
+            if (setup := self.fixed_setups[team]) is not None:
+                for piece in setup:
+                    board[piece.position] = piece
+            else:
+                setup_rows = self.specs.setup_rows[team]
 
-            types_draw = np.random.choice(token_count, nr_pieces, replace=False)
-            positions_agent_1 = [
-                (i, j) for i in range(row_offset) for j in range(game_size)
-            ]
-            positions_agent_1.remove(flag_positions[flag_choice])
+                all_pos = [
+                    Position(r, c)
+                    for r, c in itertools.product(
+                        setup_rows, range(self.specs.game_size)
+                    )
+                ]
 
-            for idx in range(nr_pieces):
-                pos = positions_agent_1[idx]
-                setup_agent[pos] = Piece(types_draw[idx], 1, Position(pos[0], pos[1]))
-        return setup_agent
+                while all_pos:
+
+                    token_draw = rng.choice(
+                        np.arange(len(all_tokens)),
+                        p=list(map(lambda x: x / sum(token_freqs), token_freqs)),
+                    )
+                    token = all_tokens[token_draw]
+                    version = token_freqs[token_draw]
+                    token_freqs[token_draw] -= 1
+                    if token_freqs[token_draw] <= 0:
+                        # if no such token is left to be drawn, then remove it from the token list
+                        erase(all_tokens, token_draw)
+                        erase(token_freqs, token_draw)
+
+                    pos_draw = rng.choice(np.arange(len(all_pos)))
+                    pos = all_pos[pos_draw]
+                    erase(all_pos, all_tokens)
+
+                    board[pos] = Piece(pos, team, token, version)
+
+        for obs_pos in self.specs.obstacle_positions:
+            board[obs_pos] = Obstacle(obs_pos)
+
+        return board
 
     @staticmethod
     def reward_agent(agent: Agent, reward: RewardToken):

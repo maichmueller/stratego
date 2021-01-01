@@ -1,6 +1,8 @@
 from __future__ import annotations
 from functools import singledispatchmethod
-from typing import Sequence, Union, Tuple, List
+from typing import Sequence, Union, Tuple
+
+import numpy as np
 
 
 class Position:
@@ -10,7 +12,8 @@ class Position:
 
     @__init__.register(tuple)
     @__init__.register(list)
-    def _(self, pos: Union[Tuple[int], List[int]]):
+    @__init__.register(np.ndarray)
+    def _(self, pos: Sequence[int]):
         assert len(pos) == 2, "Position sequence must have length 2."
         self.coords = pos
 

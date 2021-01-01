@@ -28,7 +28,7 @@ class MiniMax(Agent):
         # the matrix table for deciding battle outcomes between two pieces
         self.battleMatrix = utils.get_bm()
 
-    def decide_move(self, game):
+    def decide_move(self, state, logic: Logic = Logic()):
         """
         Depending on the amount of enemy pieces left, we are entering the start, mid or endgame
         and planning through the minimax algorithm.
@@ -284,13 +284,13 @@ class MiniMax(Agent):
             int = sample[idx]
             if int in [0, 11]:
                 piece.can_move = False
-                piece.move_radius = 0
+                piece.move_range = 0
             elif int == 2:
                 piece.can_move = True
-                piece.move_radius = float("inf")
+                piece.move_range = float("inf")
             else:
                 piece.can_move = True
-                piece.move_radius = 1
+                piece.move_range = 1
             piece.hidden = False
             board[piece.position] = piece
         return board

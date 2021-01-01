@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 import agent
-import coach
+from stratego.learning import coach
 import utils
 import copy
 

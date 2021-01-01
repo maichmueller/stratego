@@ -4,13 +4,29 @@ from abc import ABC
 from enum import Enum
 from functools import singledispatchmethod
 from typing import Union, Tuple, Dict
-import numpy as np
 
 
 class Team(Enum):
     blue = 0
     red = 1
-    obstacle = -99
+
+    def __int__(self):
+        return self.value
+
+    @singledispatchmethod
+    def __add__(self, value):
+        raise NotImplementedError
+
+    @__add__.register
+    def _(self, value: bool):
+        return Team(self.value + value)
+
+    @__add__.register
+    def _(self, value: int):
+        return Team((self.value + value) % 2)
+
+    def opponent(self):
+        return self + 1
 
 
 class Token(Enum):
@@ -32,34 +48,6 @@ class Token(Enum):
         return self.value
 
 
-class Player:
-    def __init__(self, team: Union[bool, int, Team]):
-        if isinstance(team, int):
-            assert (
-                int != Team.obstacle
-            ), f"Player can only belong to team Blue ({Team.blue}) or Red ({Team.red}), given: {team}"
-            team %= 2
-        self.team: Team = Team(team)
-
-    def __int__(self):
-        return self.team.value
-
-    @singledispatchmethod
-    def __add__(self, value):
-        raise NotImplementedError
-
-    @__add__.register
-    def _(self, value: bool):
-        return Player(Team(self.team.value + value))
-
-    @__add__.register
-    def _(self, value: int):
-        return Player(Team((self.team.value + value) % 2))
-
-    def opponent(self):
-        return self + 1
-
-
 class HookPoint(Enum):
     pre_run = 0
     post_run = 1
@@ -79,17 +67,14 @@ class Status(Enum):
     def __class_getitem__(cls, team: int):
         raise NotImplementedError
 
-    @__class_getitem__.register
-    def _(self, team: int):
+    @__class_getitem__.register(int)
+    @__class_getitem__.register(Team)
+    def _(self, team: Union[int, Team]):
         team = Team(team)
         if team == Team.red:
             return Status.win_red
         if team == Team.blue:
             return Status.win_blue
-
-    @__class_getitem__.register
-    def _(self, player: Player):
-        Status.__class_getitem__(int(player))
 
 
 MAX_NR_TURNS = 500
@@ -134,6 +119,7 @@ def build_specs(game_size: int):
             Token.bomb: 2,
         }
         obstacle_positions = [(2, 2)]
+        setup_rows = {Team.blue: [0, 1], Team.red: [3, 4]}
         game_size = 5
     elif game_size == 7:
         token_count = {
@@ -148,6 +134,7 @@ def build_specs(game_size: int):
             Token.bomb: 4,
         }
         obstacle_positions = [(3, 1), (3, 5)]
+        setup_rows = {Team.blue: [0, 1, 2], Team.red: [4, 5, 6]}
         game_size = 7
     elif game_size == 10:
         token_count = {
@@ -174,10 +161,11 @@ def build_specs(game_size: int):
             (4, 7),
             (5, 7),
         ]
+        setup_rows = {Team.blue: [0, 1, 2, 3], Team.red: [6, 7, 8, 9]}
         game_size = 10
     else:
         raise ValueError(f"Board size {game_size} not supported.")
-    return token_count, obstacle_positions, game_size
+    return token_count, obstacle_positions, setup_rows, game_size
 
 
 _game_specs = {size: build_specs(size) for size in (5, 7, 10)}
@@ -212,5 +200,9 @@ class GameSpecification:
         return self._game_specs[1]
 
     @property
+    def setup_rows(self):
+        return self._game_specs[1]
+
+    @property
     def game_size(self):
-        return self._game_specs[2]
+        return self._game_specs[3]

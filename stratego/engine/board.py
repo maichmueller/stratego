@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from stratego import Player, ShadowPiece, Piece, Team
-from stratego.spatial import Position
+from .piece import ShadowPiece, Piece, Team
+from .position import Position
 
 import numpy as np
 
@@ -107,14 +107,14 @@ class Board(np.ndarray):
 
         return figure, ax
 
-    def get_info_board(self, player: Player) -> Board:
+    def get_info_board(self, player: Team) -> Board:
         """
         Slice the current board and extract the information board the given player can have,
         i.e. the board with all the information this player has.
 
         Parameters
         ----------
-        player: Player,
+        player: Team,
             the player whose information is to be mapped
 
         Returns
