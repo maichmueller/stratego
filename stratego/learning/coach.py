@@ -178,10 +178,9 @@ class AZCoach(Coach):
     def teach(
         self,
         memory_capacity: int = 100000,
-        from_prev_examples=False,
-        load_current_best=False,
-        multiprocess=False,
-        skip_first_self_play=None,
+        load_checkpoint_data: bool = False,
+        load_checkpoint_model: bool = False,
+        multiprocess: bool = False,
         device: str = "cpu",
     ):
         """
@@ -193,30 +192,27 @@ class AZCoach(Coach):
         """
         network = self.student.model
         checkpoint_found = False
-        if from_prev_examples:
+        skip_initial_selfplay = load_checkpoint_data and not load_checkpoint_model
+
+        if load_checkpoint_data:
             i = 0
             while True:
                 if os.path.isfile(
-                    self.model_folder + f"checkpoint_{i}.pth.tar" + ".examples"
+                    self.train_data_folder + f"checkpoint_{i}.pth.tar" + ".data"
                 ):
                     checkpoint = f"checkpoint_{i}.pth.tar"
                     checkpoint_found = True
                     i += 1
                 else:
                     break
-        if load_current_best or checkpoint_found:
+        if load_checkpoint_model and checkpoint_found:
             self.load_train_data(checkpoint)
             if os.path.isfile(self.model_folder + f"best.pth.tar"):
                 network.load_checkpoint(self.model_folder, f"best.pth.tar")
 
-        selfplay_data = (
-            ReplayContainer(memory_capacity, AlphaZeroMemory)
-            if not self.skip_first_self_play
-            else self.train_examples
-        )
+        selfplay_data = ReplayContainer(memory_capacity, AlphaZeroMemory)
 
         for i in range(self.n_iters):
-            # bookkeeping
 
             print("\n------ITER " + str(i) + "------", flush=True)
 
@@ -359,8 +355,8 @@ if __name__ == "__main__":
         game_size="small",
     )
     c.teach(
-        from_prev_examples=True,
-        load_current_best=True,
+        load_checkpoint_data=True,
+        load_checkpoint_model=True,
         skip_first_self_play=False,
         multiprocess=False,
     )

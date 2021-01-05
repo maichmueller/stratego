@@ -148,7 +148,7 @@ class State:
     def _relate_piece_to_identifier(board: Board):
         piece_by_id = dict()
         for pos, piece in np.ndenumerate(board):
-            if piece is not None and not isinstance(piece, ShadowPiece):
+            if piece is not None and isinstance(piece, Piece):
                 id_tuple = piece.token, piece.version, piece.team
                 piece_by_id[id_tuple] = piece
 

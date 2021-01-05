@@ -197,7 +197,7 @@ class GameSpecification:
 
     @property
     def setup_rows(self):
-        return self._game_specs[1]
+        return self._game_specs[2]
 
     @property
     def game_size(self):

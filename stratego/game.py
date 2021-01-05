@@ -8,7 +8,7 @@ from stratego.engine.board import Board
 from stratego.engine.game_defs import Status, Team, HookPoint, GameSpecification
 from stratego.utils import slice_kwargs
 
-from typing import Optional, Dict, List, Sequence, Callable, Iterable, Union
+from typing import Optional, Dict, List, Sequence, Callable, Iterable, Union, Tuple
 import numpy as np
 from collections import defaultdict
 import itertools
@@ -24,7 +24,7 @@ class Game:
         state: Optional[State] = None,
         game_size: str = "l",
         logic: Logic = Logic(),
-        fixed_setups: Dict[Team, Optional[Iterable[Piece]]] = None,
+        fixed_setups: Tuple[Optional[Iterable[Piece]]] = (None, None),
         seed: Optional[Union[np.random.Generator, int]] = None,
     ):
         self.agents: Dict[Team, Agent] = {
@@ -35,13 +35,14 @@ class Game:
         self._gather_hooks(agents=(agent0, agent1))
         self.fixed_setups: Dict[Team, Optional[Sequence[Piece]]] = dict()
         for team in Team:
-            if setup := fixed_setups[team] is not None:
+            if setup := fixed_setups[team.value] is not None:
                 self.fixed_setups[team] = tuple(setup)
             else:
                 self.fixed_setups[team] = None
 
         self.specs: GameSpecification = GameSpecification(game_size)
 
+        self.rng_state = np.random.default_rng(seed)
         self.logic = logic
         self.state: State
         if state is not None:
@@ -51,8 +52,6 @@ class Game:
             )
         else:
             self.reset()
-
-        self.rng_state = np.random.default_rng(seed)
 
     def __str__(self):
         return np.array_repr(self.state.board)
@@ -176,17 +175,16 @@ class Game:
             the setup, in numpy array form
         """
         rng = self.rng_state
-        token_count = self.specs.token_count
-        all_tokens = list(token_count.keys())
-        token_freqs = list(token_count.values())
 
-        def erase(list_like, i):
-            return list_like[:i] + list_like[i + 1:]
 
         board = Board(
             np.empty((self.specs.game_size, self.specs.game_size), dtype=object)
         )  # inits all entries to None
         for team in Team:
+            token_count = self.specs.token_count
+            all_tokens = list(token_count.keys())
+            token_freqs = list(token_count.values())
+
             if (setup := self.fixed_setups[team]) is not None:
                 for piece in setup:
                     board[piece.position] = piece
@@ -209,14 +207,14 @@ class Game:
                     token = all_tokens[token_draw]
                     version = token_freqs[token_draw]
                     token_freqs[token_draw] -= 1
-                    if token_freqs[token_draw] <= 0:
+                    if token_freqs[token_draw] == 0:
                         # if no such token is left to be drawn, then remove it from the token list
-                        erase(all_tokens, token_draw)
-                        erase(token_freqs, token_draw)
+                        all_tokens.pop(token_draw)
+                        token_freqs.pop(token_draw)
 
                     pos_draw = rng.choice(np.arange(len(all_pos)))
                     pos = all_pos[pos_draw]
-                    erase(all_pos, all_tokens)
+                    all_pos.pop(pos_draw)
 
                     board[pos] = Piece(pos, team, token, version)
 

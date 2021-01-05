@@ -128,8 +128,7 @@ class ActionMap:
                         actions_mask[action_idx] = 1
         return actions_mask
 
-    @singledispatchmethod
-    def action_to_move(self, action, state: State, team: Team):
+    def action_to_move(self, action: Union[int, Action], state: State, team: Team):
         """
         Converting an action index (0-action_dim) to a move, according to the action representation.
 
@@ -146,15 +145,7 @@ class ActionMap:
         -------
         Move
         """
-        raise NotImplementedError
-
-    @action_to_move.register(int)
-    def action_to_move(self, action: int, state: State, team: Team):
-        action = self.actions[action]
-        piece = state.piece_by_id[action.actor + (team,)]
-        return Move(piece.position, action(piece.position))
-
-    @action_to_move.register(Action)
-    def action_to_move(self, action: Action, state: State, team: Team):
+        if isinstance(action, int):
+            action = self.actions[action]
         piece = state.piece_by_id[action.actor + (team,)]
         return Move(piece.position, action(piece.position))
