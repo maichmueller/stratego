@@ -146,13 +146,13 @@ class Board(np.ndarray):
         info_board = Board(np.ndarray((5, 5), dtype=object))
         opponent = player.opponent()
         for piece in self.flatten():
-            if piece is not None:
-                if piece.team != opponent.team:
+            if piece is not None and not isinstance(piece, Obstacle):
+                if piece.team != opponent:
                     info_board[piece.position] = piece
                 else:
                     if piece.hidden:
                         info_board[piece.position] = ShadowPiece(
-                            opponent.team, piece.position
+                            piece.position, opponent
                         )
                     else:
                         info_board[piece.position] = piece

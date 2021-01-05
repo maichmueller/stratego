@@ -189,7 +189,9 @@ class Logic(metaclass=Singleton):
         for pos, piece in np.ndenumerate(board):
             if piece is not None and piece.team == team and piece.can_move:
                 # board position has a movable piece of your team on it
-                for move in cls.moves_iter(piece.token, pos, game_size):
+                for move in cls.moves_iter(
+                    piece.token, Position(tuple(map(int, pos))), game_size
+                ):
                     if cls.is_legal_move(board, move):
                         yield move
 
