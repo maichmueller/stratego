@@ -100,10 +100,11 @@ class Board(np.ndarray):
                     if not piece.hidden or omniscient:
                         # token written on marker center
                         token_s, version_s = str(piece).split(".")
+                        color = "black" if not piece.hidden else "grey"
                         ax.annotate(
                             token_s,
                             xy=(pos[1], pos[0]),
-                            color="black",
+                            color=color,
                             size=15,
                             ha="center",
                             va="center",
@@ -111,7 +112,7 @@ class Board(np.ndarray):
                         ax.annotate(
                             f"/{version_s}",
                             xy=(pos[1] + .25, pos[0] - .1),
-                            color="black",
+                            color=color,
                             size=10,
                             ha="center",
                             va="center",
