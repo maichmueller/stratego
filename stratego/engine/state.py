@@ -16,6 +16,13 @@ class History:
         self.team: Dict[int, Team] = dict()
         self.pieces: Dict[int, Tuple[Piece, Piece]] = dict()
 
+    def get_by_turn(self, turn: int):
+        return self.team[turn], self.move[turn], self.pieces[turn]
+
+    def get_by_index(self, idx: int):
+        turn = self.turns[idx]
+        return self.team[turn], self.move[turn], self.pieces[turn]
+
     def commit_move(self, board: Board, move: Move, turn: int):
         """
         Commit the current move to history.
@@ -25,6 +32,18 @@ class History:
         self.move[turn] = move
         self.pieces[turn] = copy.deepcopy(board[from_]), copy.deepcopy(board[to_])
         self.team[turn] = Team(turn % 2)
+        self.turns.append(turn)
+
+    def pop_last(self):
+        """
+        Remove the latest entries from the history. Return the contents, that were removed.
+        Returns
+        -------
+        tuple,
+            all removed entries in sequence: turn, team, move, pieces
+        """
+        turn = self.turns[-1]
+        return turn, self.team.pop(turn), self.move.pop(turn), self.pieces.pop(turn)
 
 
 class State:
@@ -34,10 +53,10 @@ class State:
         starting_team: Team,
         piece_by_id_map: Dict[Tuple[Token, int, Team], Piece] = None,
         history: Optional[History] = None,
-        move_count: int = 0,
+        turn_count: int = 0,
+        flipped_teams: bool = False,
         status: Status = Status.ongoing,
-        canonical: bool = True,
-        dead_pieces: Dict[Team, Dict[int, int]] = None,
+        dead_pieces: Dict[Team, Dict[Token, int]] = None,
     ):
         self.board = board
         self.piece_by_id: Dict[Tuple[Token, int, Team], Piece] = (
@@ -48,14 +67,14 @@ class State:
         self.history: History = history if history is not None else History()
         self.game_size: int = board.shape[0]
 
-        self._is_canonical: bool = canonical
-
-        self._turn_counter: int = move_count
-        self.starting_team: Team = starting_team
-        self.active_team: Team = Team((move_count + int(self.starting_team)) % 2)
-
         self.status: Status = status
         self.status_checked: bool = False
+
+        self.flipped_teams: bool = flipped_teams
+
+        self._turn_counter: int = turn_count
+        self._starting_team: Team = starting_team
+        self._active_team: Team = Team((turn_count + int(self._starting_team)) % 2)
 
         if dead_pieces is not None:
             self.dead_pieces = dead_pieces
@@ -63,10 +82,28 @@ class State:
             self.dead_pieces = {Team(0): dict(), Team(1): dict()}
 
     def __str__(self):
-        return np.array_repr(self.board)
+        return (
+            f"{np.array_repr(self.board)}\n"
+            f"Starting Team: {self._starting_team.name}\n"
+            f"Active Team: {self._active_team.name}\n"
+            f"Status: {self.status.name}\n"
+            f"Turns: {str(self.turn_counter)}\n"
+            f"Dead Pieces Blue: {self.dead_pieces[Team.blue]}\n"
+            f"Dead Pieces Red: {self.dead_pieces[Team.red]}\n"
+        )
 
     def __hash__(self):
         return hash(str(self))
+
+    @property
+    def active_team(self):
+        # no outside manipulation intended
+        return self._active_team
+
+    @property
+    def starting_team(self):
+        # no outside manipulation intended
+        return self._starting_team
 
     @property
     def turn_counter(self):
@@ -75,14 +112,15 @@ class State:
     @turn_counter.setter
     def turn_counter(self, count: int):
         self._turn_counter = count
-        self.active_team = Team((count + int(self.starting_team)) % 2)
+        self._active_team = Team((count + int(self._starting_team)) % 2)
 
     def get_info_state(self, team: Team):
         return State(
             self.board.get_info_board(team),
-            starting_team=self.starting_team,
+            starting_team=self._starting_team,
             history=self.history,
-            move_count=self.turn_counter,
+            turn_count=self.turn_counter,
+            flipped_teams=self.flipped_teams,
             dead_pieces=self.dead_pieces,
         )
 
@@ -94,7 +132,7 @@ class State:
         """
         Parameters
         ----------
-        positions: PositionType,
+        positions: Position,
             piece board spatial
         pieces: Piece,
             the new piece at the spatial
@@ -116,23 +154,25 @@ class State:
 
         return piece_by_id
 
-    def force_canonical(self, player: Team):
+    def flip_teams(self):
         """
-        Make the given player be team 0.
-        :param player: int, the team to convert to
+        Flip the teams and rotate the board, so that red becomes blue and vice versa on the board.
+        This is important when an agent only understands himself to be a certain team,
+        hence needs a canonical view of the state.
         """
-        if player == 0 and self._is_canonical:
-            # player 0 is still team 0
-            return
-        elif player == 1 and not self._is_canonical:
-            # player 1 has already been made 0 previously
-            return
-        else:
-            # flip team 0 and 1 and note the change in teams
-            self._is_canonical = not self._is_canonical
-            self.board = np.flip(self.board)
-            for pos, piece in np.ndenumerate(self.board):
-                # flip all team attributes
-                if piece is not None and not isinstance(piece, Obstacle):
-                    piece.team += 1
-                    piece.position = pos
+        self.flipped_teams = not self.flipped_teams
+        # flip team blue and red
+        self._active_team = self._active_team.opponent()
+        self._starting_team = self._starting_team.opponent()
+
+        self.board = np.flip(self.board)
+        # swap the dead pieces dictionary (note this is safe to do, due to execution order in python)
+        self.dead_pieces[Team.blue], self.dead_pieces[Team.red] = (
+            self.dead_pieces[Team.red],
+            self.dead_pieces[Team.blue],
+        )
+        for pos, piece in np.ndenumerate(self.board):
+            # flip all team attributes
+            if piece is not None and not isinstance(piece, Obstacle):
+                piece.team += 1
+                piece.change_position(pos)

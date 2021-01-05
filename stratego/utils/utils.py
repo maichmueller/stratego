@@ -1,15 +1,11 @@
 import numpy as np
-from scipy import spatial
 from matplotlib import pyplot as plt
 
-from collections import namedtuple
-import random
 from sklearn.manifold import TSNE
 import torch
 from torch.nn import functional as F
 from torch.autograd import Variable
 import copy
-import random
 from inspect import signature
 
 
@@ -26,7 +22,7 @@ def slice_kwargs(func, kwargs):
     sliced_kwargs = dict()
     for p in signature(func).parameters.values():
         if p in kwargs:
-            sliced_kwargs[p.name] = kwargs.pop(p.name)
+            sliced_kwargs[p.name] = kwargs.pop_last(p.name)
     return sliced_kwargs
 
 
@@ -114,34 +110,6 @@ def plot_stats_all(episode_won, end_episode):
     plt.pause(0.001)  # pause a bit so that plots are updated
 
 
-class ReplayMemory(object):
-    """
-    Stores a state-transition (s, a, s', r) quadruple
-    for approximating Q-values with q(s, a) <- r + gamma * max_a' q(s', a') updates
-    """
-
-    def __init__(self, capacity):
-        self.capacity = capacity
-        self.memory = []
-        self.position = 0
-
-    def __len__(self):
-        return len(self.memory)
-
-    def push(self, *args):
-        """Saves a transition."""
-        if len(self.memory) < self.capacity:
-            self.memory.append(None)
-        self.memory[self.position] = Transition(*args)
-        self.position = (self.position + 1) % self.capacity
-
-    def sample(self, batch_size):
-        return random.sample(self.memory, batch_size)
-
-
-Transition = namedtuple("Transition", ("state", "action", "next_state", "reward"))
-
-
 def visualize_features(n_points, environment, env_name):
     """
     Visualize with t-SNE the models representation of a board state
@@ -227,7 +195,7 @@ def visualize_features(n_points, environment, env_name):
     plt.savefig("{}-tsne.png".format(env_name))
 
 
-class AverageMeter(object):
+class RollingMeter(object):
     """
     Computes and stores the average and current value
     Imported from https://github.com/pytorch/examples/blob/master/imagenet/main.py#L247-L262
@@ -237,16 +205,14 @@ class AverageMeter(object):
         self.val = 0
         self.avg = 0
         self.sum = 0
+        self.max = 0
+        self.min = 0
         self.count = 0
 
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
+    def push(self, val, n=1):
         self.val = val
-        self.sum += val * n
-        self.count += n
         self.avg = self.sum / self.count
+        self.sum += val * n
+        self.max = max(self.max, val)
+        self.min = min(self.min, val)
+        self.count += n

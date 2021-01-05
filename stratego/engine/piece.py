@@ -9,7 +9,6 @@ from typing import *
 
 
 class PieceBase(ABC):
-
     def __init__(self, position: Position, hidden: bool = True, can_move: bool = True):
         self.position = position
         self.hidden = hidden
@@ -20,7 +19,13 @@ class PieceBase(ABC):
 
 
 class Piece(PieceBase):
-    def __init__(self, position: Position, team: Union[int, Team], token: Union[int, Token], version: int = 1):
+    def __init__(
+        self,
+        position: Position,
+        team: Union[int, Team],
+        token: Union[int, Token],
+        version: int = 1,
+    ):
         is_flag_or_bomb = token not in (Token.flag, Token.bomb)
         super().__init__(position, True, is_flag_or_bomb)
         self.team = Team(team)
@@ -42,7 +47,9 @@ class Piece(PieceBase):
         return hash((self.team, self.token, self.version))
 
     def __repr__(self):
-        return f"{self.team}|[{self.token.value}.{self.version}]{'_H' if self.hidden else ''}"
+        return f"{'B' if self.team == Team.blue else 'R'}|" \
+               f"[{self.token.value}.{self.version}]" \
+               f"{'_H' if self.hidden else ''}"
 
     @singledispatchmethod
     def similar(self, other_piece: Piece) -> bool:
@@ -85,7 +92,6 @@ class ShadowPiece(PieceBase):
     Unknown Piece class. This is a placeholder for slicing the true board down to an individual agent's information.
     """
 
-    def __init__(self, team: Team, position: Position):
+    def __init__(self, position: Position, team: Team):
+        super().__init__(position)
         self.team = team
-        self.position: Position = position
-

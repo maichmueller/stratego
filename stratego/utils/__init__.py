@@ -1,1 +1,1 @@
-from .utils import Singleton, slice_kwargs, AverageMeter
+from .utils import Singleton, slice_kwargs, RollingMeter

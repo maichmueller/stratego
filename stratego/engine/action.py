@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from .state import State
 from .game_defs import Token, Team, GameSpecification
 from .position import Position, Move
@@ -5,14 +7,16 @@ from .board import Board
 from .logic import Logic
 from .piece import Piece
 
-from typing import Tuple, Dict, Union, List
+from typing import Tuple, Dict, Union, List, Iterator
 from functools import singledispatchmethod
 import numpy as np
 
 
 class Action:
     def __init__(
-        self, actor: Union[Tuple[Token, int], Piece], effect: Position
+        self,
+        actor: Union[Tuple[Token, int], Piece],
+        effect: Position
     ):
         self.actor: Tuple[Token, int]
         if isinstance(actor, tuple):
@@ -34,11 +38,15 @@ class Action:
 
 
 class ActionMap:
-
     def __init__(self, game_specs: GameSpecification):
         self.specs = game_specs
-        self.actions, self.actions_inverse = self._build_action_map(self.specs.token_count)
+        self.actions, self.actions_inverse = self._build_action_map(
+            self.specs.token_count
+        )
         self.action_dim = len(self.actions)
+
+    def __len__(self):
+        return len(self.actions)
 
     @singledispatchmethod
     def __getitem__(self, arg):
@@ -56,17 +64,20 @@ class ActionMap:
     def _(self, arg: Piece):
         return self.actions_inverse[arg.token, arg.version]
 
-    def _build_action_map(self, available_types: Dict[Token, int]):
+    def _build_action_map(
+        self, available_types: Dict[Token, int], logic: Logic = Logic()
+    ):
         actions: List[Action] = []
         actions_inverse: Dict[Tuple[int, int], List[int]] = dict()
         for token, freq in available_types.items():
             if token in [Token.flag, Token.bomb]:
                 continue
 
-            moves: List[Move] = list(
-                Logic.moves_iter(
-                    token, Position(0, 0), self.specs.game_size, distances=[self.specs.game_size] * 4
-                )
+            moves: Iterator[Move] = logic.moves_iter(
+                    token,
+                    Position(0, 0),
+                    self.specs.game_size,
+                    distances=[self.specs.game_size] * 4,
             )
 
             for version in range(1, freq + 1):
@@ -82,7 +93,9 @@ class ActionMap:
         self.actions_inverse = actions_inverse
         return actions, actions_inverse
 
-    def actions_mask(self, board: Board, team: Union[Team, int]):
+    def actions_mask(
+        self, board: Board, team: Union[Team, int], logic: Logic = Logic()
+    ):
         """
         Get a boolean mask for the actions vector, masking out the illegal moves.
 
@@ -92,6 +105,10 @@ class ActionMap:
             the board on which the corresponding legal moves are calculated and hence illegal actions masked.
         team: Team or int,
             the team to which the action belongs.
+        logic: Logic,
+            the logic to use. Should not need to be used in general. Defaults to standard Stratego
+            logic.
+
 
         Returns
         -------
@@ -107,18 +124,19 @@ class ActionMap:
                 actions_indices = self[piece]
                 for action_idx in actions_indices:
                     action = self[action_idx]
-                    if Logic.is_legal_move(board, Move(pos, action(pos))):
+                    if logic.is_legal_move(board, Move(pos, action(pos))):
                         actions_mask[action_idx] = 1
         return actions_mask
 
-    def action_to_move(self, idx: int, state: State, team: Team):
+    @singledispatchmethod
+    def action_to_move(self, action, state: State, team: Team):
         """
         Converting an action index (0-action_dim) to a move, according to the action representation.
 
         Parameters
         ----------
-        idx: int,
-            index of the action in the action list.
+        action: Action or int,
+            index of the action in the action list or the action itself.
         state: State,
             the state on which to translate the action to a move.
         team: Team,
@@ -128,6 +146,15 @@ class ActionMap:
         -------
         Move
         """
-        action = self.actions[idx]
-        piece = state.piece_by_id[action.actor + (team, )]
+        raise NotImplementedError
+
+    @action_to_move.register(int)
+    def action_to_move(self, action: int, state: State, team: Team):
+        action = self.actions[action]
+        piece = state.piece_by_id[action.actor + (team,)]
+        return Move(piece.position, action(piece.position))
+
+    @action_to_move.register(Action)
+    def action_to_move(self, action: Action, state: State, team: Team):
+        piece = state.piece_by_id[action.actor + (team,)]
         return Move(piece.position, action(piece.position))

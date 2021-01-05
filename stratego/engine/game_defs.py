@@ -18,10 +18,6 @@ class Team(Enum):
         raise NotImplementedError
 
     @__add__.register
-    def _(self, value: bool):
-        return Team(self.value + value)
-
-    @__add__.register
     def _(self, value: int):
         return Team((self.value + value) % 2)
 

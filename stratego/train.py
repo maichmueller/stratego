@@ -10,9 +10,6 @@ from stratego.learning import coach
 import utils
 import copy
 
-# training of DQN network code is adjusted from Adam Paszke
-# http://pytorch.org/tutorials/intermediate/reinforcement_q_learning.html
-
 
 def optimize_model(model):
     """

@@ -1,3 +1,5 @@
-from .engine import *
-from .utils import *
-from .learning import *
+import stratego.engine
+import stratego.learning
+import stratego.utils
+import stratego.arena
+from .game import Game

@@ -1,235 +1,295 @@
 import math
-from copy import deepcopy
-import torch
+from typing import Sequence, Tuple, Dict, List
 
-import utils
+import torch
 
 import numpy as np
 
-from stratego import Logic, Status, Team, State, MAX_NR_TURNS
+from stratego.agent import RLAgent
+from stratego.engine import ActionMap, Logic, Status, Team, State
 
 EPS = 1e-8
 
 
-class MCTS():
+class MCTS:
     """
-    This class handles the MCTS tree.
+    This class handles the MCTS algorithm.
     """
 
-    def __init__(self, nnet, cpuct=4, num_mcts_sims=100, ):
-        self.nnet = nnet
+    def __init__(
+        self,
+        network: torch.nn.Module,
+        action_map: ActionMap,
+        cpuct: float = 4.0,
+        n_mcts_sims: int = 100,
+        logic: Logic = Logic(),
+    ):
+        self.network = network
+        self.action_map = action_map
+        self.logic = logic
         self.cpuct = cpuct
-        self.num_mcts_sims = max(1, num_mcts_sims)
-        self.Qsa = {}       # stores Q values for s,a (as defined in the paper)
-        self.Nsa = {}       # stores #times edge s,a was visited
-        self.Ns = {}        # stores #times board s was visited
-        self.Ps = {}        # stores policy (returned by neural net)
+        self.n_mcts_sims = max(1, n_mcts_sims)
 
-        self.Es = {}        # stores game.is_terminal ended for board s
-        self.Vs = {}        # stores game.get_poss_moves for board s
+        self.Qsa: Dict[Tuple[str, int], float] = {}  # stores Q values for (s, a)
+        self.Nsa: Dict[
+            Tuple[str, int], int
+        ] = {}  # stores #times edge (s, a) was visited
+        self.Ns: Dict[str, float] = {}  # stores #times board s was visited
+        self.Ps: Dict[str, np.ndarray] = {}  # stores policy (returned by neural net)
 
-    def get_action_prob(self, state, player, expl_rate=1):
+        self.Es: Dict[str, Status] = {}  # stores game end status for state s
+        self.Vs: Dict[str, np.ndarray] = {}  # stores valid moves for state s
+
+    def policy(
+        self, state: State, agent: RLAgent, temperature: float = 1.0
+    ) -> np.ndarray:
         """
-        This function performs num_mcts_sims simulations of MCTS starting from
-        board.
-        Returns:
-            probs: a policy vector where the probability of the ith action is
-                   proportional to Nsa[(s,a)]**(1./expl_rate)
-        """
-        for i in range(self.num_mcts_sims):
-            # print('\rIteration:', i, end='')
-            r = self.search(deepcopy(state), player, root=True)
+        This function performs n_mcts_sims simulations of MCTS starting from the given
+        state to compute the policy for it.
 
-        state.force_canonical(player)
+        Parameters
+        ----------
+        state: State,
+            the state whose policy we want.
+        agent: RLAgent,
+            the reinforcement learning agent for which the policy is intended.
+        temperature: float,
+            the exploration temperature T. Higher values will push the policy
+            towards a uniform distribution via
+
+            ::math: policy ** (1 / T)
+
+            A value of 1 does not change the policy.
+
+        Returns
+        -------
+        np.ndarray,
+            a policy vector where the probability of the a-th action is proportional to
+                Nsa[(s,a)] ** (1 / temperature)
+        """
+        for i in range(self.n_mcts_sims):
+            value = self.search(state, agent)
+            assert value != float("inf"), "Returned board value is infinite."
+
+        if state.flipped_teams:
+            # return the state back to its original setting
+            state.flip_teams()
+
         s = str(state)
-        counts = [self.Nsa[(s, a)] if (s, a) in self.Nsa else 0 for a in range(utils.action_rep.action_dim)]
-        # self.game.state.force_canonical(0)  # reset board to natural teams (0 is 0 again)
-        if sum(counts) == 0:
-            # game ended, thus state doesnt have prob values to choose move from
-            return r
 
-        if expl_rate == 0:
+        counts = np.array(
+            [
+                self.Nsa[(s, a)] if (s, a) in self.Nsa else 0
+                for a in range(len(self.action_map))
+            ]
+        )
+
+        if temperature == 0:
             best_act = int(np.argmax(counts))
-            probs = [0]*len(counts)
-            probs[best_act] = 1
-            return probs
+            policy = np.zeros(len(counts))
+            policy[best_act] = 1
+            return policy
 
-        counts = [x**(1./expl_rate) for x in counts]
-        probs = [x/float(sum(counts)) for x in counts]
-        return probs
+        counts = counts ** (1.0 / temperature)
+        policy = counts / counts.sum()
+        return policy
 
-    def search(self, state: State, player: Team, root=False, logic: Logic = Logic()):
+    def search(self, state: State, agent: RLAgent, logic: Logic = Logic()):
+        """
+        This function performs one iteration of MCTS. It iterates, until a leaf node is found.
+        The action chosen at each node is one that has the maximum upper confidence bound as
+        in the paper.
+        Once a leaf node is found, the neural network is called to return an initial
+        policy P and a value value for the state. This value is propagated up the search path.
+        In case the leaf node is a terminal state, the outcome is propagated up the search path.
+        The values of Ns, Nsa, Qsa are updated.
+
+        Returns
+        -------
+        float,
+            the board value for the agent.
+        """
+        turn_counter_pre = state.turn_counter
+
+        # (state, action) -> perspective
+        sa_to_p = dict()
+
+        # this simply initializes the variable.
+        # If one finds this value later in the tree, then there is a bug in the logic.
+        value = float("inf")
+        # the first iteration is always the root
+        root = True
+
+        while True:
+            if state.active_team == Team.red:
+                # the network is trained only from the perspective of team blue
+                state.flip_teams()
+            # get string representation of state
+            s = str(state)
+
+            if (state.active_team == agent.team) == state.flipped_teams:
+                # adjust for the correct perspective:
+                # The value needs to be always seen from the perspective of the 'agent'.
+
+                # The condition is logically equivalent to:
+                #       (agent == active player AND teams flipped)
+                #    OR (agent != active player AND teams not flipped)
+                # -> Opponent perspective.
+                # and in these cases we then need to multiply with -1
+                # (assuming symmetric rewards).
+                perspective = -1
+            else:
+                perspective = 1
+
+            if s not in self.Es:
+                self.Es[s] = logic.get_status(state)
+
+            if self.Es[s] != Status.ongoing:
+                # terminal node
+                value = self.Es[s].value
+                break
+            elif s not in self.Ps:
+                # leaf node
+                value = self._fill_leaf_node(state, s, agent)
+                break
+            else:
+                # has not reached a leaf or terminal node yet, so keep searching
+                # by playing according to the current policy
+                valids = self.Vs[s]
+                policy = self.Ps[s]
+                if root:
+                    policy = self._make_policy_noisy(policy, valids)
+                    # the root is only the first iteration. This information was used
+                    # only to add noise to the policy. So now we can deactivate this.
+                    root = False
+
+                a = self._select_action(s, policy, valids)
+                sa_to_p[(s, a)] = perspective
+
+                move = self.action_map.action_to_move(a, state, Team.blue)
+                self.logic.execute_move(state, move)
+
+        if state.flipped_teams:
+            # reset the state to its original team orientation
+            state.flip_teams()
+
+        # undo all the turns that were made during the search phase
+        self.logic.undo_last_n_turns(state, n=state.turn_counter - turn_counter_pre)
+
+        for (s, a), per in sa_to_p:
+            # for every (state, action) pair: update its Q-value and visitation counter.
+            self._update_qsa(s, a, value * per)
+            # increment the visitation counter of this state
+            self.Ns[s] += 1
+
+        # adjust for team perspective and return the value
+        return value * perspective
+
+    def search_recursive(
+        self, state: State, agent: RLAgent, root: bool = False, logic: Logic = Logic()
+    ):
         """
         This function performs one iteration of MCTS. It is recursively called
-        till a leaf node is found. The action chosen at each node is one that
+        until a leaf node is found. The action chosen at each node is one that
         has the maximum upper confidence bound as in the paper.
         Once a leaf node is found, the neural network is called to return an
-        initial policy P and a value v for the state. This value is propagated
+        initial policy P and a value value for the state. This value is propagated
         up the search path. In case the leaf node is a terminal state, the
         outcome is propagated up the search path. The values of Ns, Nsa, Qsa are
         updated.
-        NOTE: the return values are the negative of the value of the current
-        state. This is done since v is in [-1,1] and if v is the value of a
-        state for the current player, then its value is -v for the other player.
-        Returns:
-            v: the negative of the value of the current board
+
+        Notes
+        -----
+        Since the board value is computed after game termination during the next
+        recursive step, which includes a player-view shift, the returned value is
+        always from the perspective of the opponent.
+
+        Returns
+        -------
+        float,
+            the (opponent's) board value for the player.
         """
-        state.force_canonical(player)
+        if state.active_team == Team.red:
+            # the network is trained only from the perspective of team blue
+            state.flip_teams()
         # get string representation of state
         s = str(state)
 
         if s not in self.Es:
             self.Es[s] = logic.get_status(state)
-        elif state.turn_counter > MAX_NR_TURNS:
-            return 0
         if self.Es[s] != Status.ongoing:
             # terminal node
-            return -self.Es[s]
+            return -self.Es[s].value
 
         if s not in self.Ps:
             # leaf node
-            # print('Leaf node reached.')
-            Ps, v = self.nnet.predict(torch.Tensor(state.state_representation(0)))
-            actions, relation_dict = utils.action_rep.actions, utils.action_rep.piecetype_to_actionrange
-            actions_mask = utils.get_actions_mask(state.board, 0,
-                                                  relation_dict,
-                                                  actions)
-            self.Ps[s] = Ps * actions_mask  # masking invalid moves
-            self.Ps[s] /= np.sum(self.Ps[s])  # renormalize
-
-            self.Vs[s] = actions_mask
-            self.Ns[s] = 0
-            return -v
+            return -self._fill_leaf_node(state, s, agent)
 
         valids = self.Vs[s]
-        # valids = actions_mask
-        cur_best = -float('inf')
-        best_action = -1
-
-        Ps = self.Ps[s]
+        policy = self.Ps[s]
         if root:
-            dirich_noise = np.random.dirichlet([0.5] * utils.action_rep.action_dim)
-            Ps = ((1 - 0.25) * Ps + 0.25 * dirich_noise) * valids
-            Ps /= Ps.sum()
+            policy = self._make_policy_noisy(policy, valids)
 
+        a = self._select_action(s, policy, valids)
+        move = self.action_map.action_to_move(a, state, Team.blue)
+
+        self.logic.execute_move(state, move)
+
+        value = self.search_recursive(state, agent, root=False)
+
+        self.logic.undo_last_n_turns(state, n=1)
+
+        self._update_qsa(s, a, value)
+        self.Ns[s] += 1
+
+        return -value
+
+    def _update_qsa(self, s: str, a: int, value: float):
+        s_a = (s, a)
+        if s_a in self.Qsa:
+            self.Qsa[s_a] = (self.Nsa[s_a] * self.Qsa[s_a] + value) / (
+                self.Nsa[s_a] + 1
+            )
+            self.Nsa[s_a] += 1
+
+        else:
+            self.Qsa[s_a] = value
+            self.Nsa[s_a] = 1
+
+    def _select_action(
+        self, s: str, policy: Sequence[float], valid_actions: Sequence[bool]
+    ):
         # pick the action with the highest upper confidence bound
-        for a in np.where(valids)[0]:
+        cur_best = -float("inf")
+        best_action = -1
+        for a in np.where(valid_actions)[0]:
             if (s, a) in self.Qsa:
-                u = self.Qsa[(s, a)] + self.cpuct * Ps[a] * math.sqrt(self.Ns[s]) / (1 + self.Nsa[(s, a)])
+                u = self.Qsa[(s, a)] + self.cpuct * policy[a] * math.sqrt(
+                    self.Ns[s]
+                ) / (1 + self.Nsa[(s, a)])
             else:
-                u = self.cpuct * Ps[a] * math.sqrt(self.Ns[s] + EPS)     # Q = 0 ?
+                u = self.cpuct * policy[a] * math.sqrt(self.Ns[s] + EPS)
 
             if u > cur_best:
                 cur_best = u
                 best_action = a
+        return best_action
 
-        a = best_action
-        move = state.action_to_move(a, 0, force=True)
+    def _fill_leaf_node(self, state: State, s: str, agent: RLAgent):
+        policy, value = self.network.predict(
+            agent.state_to_tensor(state, perspective=Team.blue)
+        )
+        actions_mask = self.action_map.actions_mask(state.board, agent.team, self.logic)
+        policy = policy * actions_mask  # masking invalid moves
+        self.Ps[s] = policy / policy.sum()  # normalize to get probabilities
+        self.Vs[s] = actions_mask
+        self.Ns[s] = 0
+        return value
 
-        state.commit_move(move)
-
-        v = self.search(state, (player + 1) % 2, root=False)
-
-        if (s, a) in self.Qsa:
-            self.Qsa[(s, a)] = (self.Nsa[(s, a)] * self.Qsa[(s, a)] + v) / (self.Nsa[(s, a)] + 1)
-            self.Nsa[(s, a)] += 1
-
-        else:
-            self.Qsa[(s, a)] = v
-            self.Nsa[(s, a)] = 1
-
-        self.Ns[s] += 1
-        return -v
-
-    def search(self, state, player, root=False):
-        """
-        This function performs one iteration of MCTS. It is recursively called
-        till a leaf node is found. The action chosen at each node is one that
-        has the maximum upper confidence bound as in the paper.
-        Once a leaf node is found, the neural network is called to return an
-        initial policy P and a value v for the state. This value is propagated
-        up the search path. In case the leaf node is a terminal state, the
-        outcome is propagated up the search path. The values of Ns, Nsa, Qsa are
-        updated.
-        NOTE: the return values are the negative of the value of the current
-        state. This is done since v is in [-1,1] and if v is the value of a
-        state for the current player, then its value is -v for the other player.
-        Returns:
-            v: the negative of the value of the current board
-        """
-        state.force_canonical(player)
-        # get string representation of state
-        s = str(state)
-
-        if s not in self.Es:
-            self.Es[s] = state.get_status()
-        elif state.turn_counter > state.max_nr_turns:
-            return 0
-        if self.Es[s] != 404:
-            # terminal node
-            return -self.Es[s]
-
-        if s not in self.Ps:
-            # leaf node
-            # print('Leaf node reached.')
-            Ps, v = self.nnet.predict(torch.Tensor(state.state_representation(0)))
-            actions, relation_dict = utils.action_rep.actions, utils.action_rep.piecetype_to_actionrange
-            actions_mask = utils.get_actions_mask(state.board, 0,
-                                                  relation_dict,
-                                                  actions)
-            self.Ps[s] = Ps * actions_mask  # masking invalid moves
-            self.Ps[s] /= np.sum(self.Ps[s])  # renormalize
-            # else:
-            #     # if all valid moves were masked make all valid moves equally probable
-            #
-            #     # NB! All valid moves may be masked if either your NNet architecture is
-            #     # insufficient or you've get overfitting or something else.
-            #     # If you have got dozens or hundreds of these messages you
-            #     # should pay attention to your NNet and/or training process.
-            #     print("All valid moves were masked, do workaround.")
-            #     self.Ps[s] = self.Ps[s] + actions_mask
-            #     self.Ps[s] /= np.sum(self.Ps[s])
-
-            self.Vs[s] = actions_mask
-            self.Ns[s] = 0
-            return -v
-
-        valids = self.Vs[s]
-        # valids = actions_mask
-        cur_best = -float('inf')
-        best_action = -1
-
-        Ps = self.Ps[s]
-        if root:
-            dirich_noise = np.random.dirichlet([0.5] * utils.action_rep.action_dim)
-            Ps = ((1 - 0.25) * Ps + 0.25 * dirich_noise) * valids
-            Ps /= Ps.sum()
-
-        # pick the action with the highest upper confidence bound
-        for a in np.where(valids)[0]:
-            if (s, a) in self.Qsa:
-                u = self.Qsa[(s, a)] + self.cpuct * Ps[a] * math.sqrt(self.Ns[s]) / (1 + self.Nsa[(s, a)])
-            else:
-                u = self.cpuct * Ps[a] * math.sqrt(self.Ns[s] + EPS)     # Q = 0 ?
-
-            if u > cur_best:
-                cur_best = u
-                best_action = a
-
-        a = best_action
-        move = state.action_to_move(a, 0, force=True)
-
-        state.commit_move(move)
-
-        v = self.search(state, (player + 1) % 2, root=False)
-
-        if (s, a) in self.Qsa:
-            self.Qsa[(s, a)] = (self.Nsa[(s, a)] * self.Qsa[(s, a)] + v) / (self.Nsa[(s, a)] + 1)
-            self.Nsa[(s, a)] += 1
-
-        else:
-            self.Qsa[(s, a)] = v
-            self.Nsa[(s, a)] = 1
-
-        self.Ns[s] += 1
-        return -v
+    def _make_policy_noisy(
+        self, policy: np.ndarray, valid_actions: np.ndarray, weight: float = 0.25
+    ):
+        # add noise to the actions to encourage more exploration
+        dirichlet_noise = np.random.dirichlet([0.5] * len(self.action_map))
+        policy = ((1 - weight) * policy + weight * dirichlet_noise) * valid_actions
+        return policy / policy.sum()

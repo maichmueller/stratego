@@ -156,11 +156,9 @@ class Game:
             else:
                 self.reward_agent(agent, RewardToken.kill_mutually)
 
-        # test if engine is over
+        # test if game is over
         if (status := self.logic.get_status(self.state)) != Status.ongoing:
             return status
-
-        self.state.turn_counter += 1
 
         return Status.ongoing
 
@@ -182,8 +180,8 @@ class Game:
         all_tokens = list(token_count.keys())
         token_freqs = list(token_count.values())
 
-        def erase(list_cont, i):
-            return list_cont[:i] + list_cont[i + 1 :]
+        def erase(list_like, i):
+            return list_like[:i] + list_like[i + 1:]
 
         board = Board(
             np.empty((self.specs.game_size, self.specs.game_size), dtype=object)

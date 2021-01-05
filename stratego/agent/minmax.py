@@ -301,15 +301,15 @@ class MiniMax(Agent):
         :param board: numpy array (5, 5)
         :return: board
         """
-        last_move = self.last_N_moves.pop()
+        last_move = self.last_N_moves.pop_last()
         if last_move is None:
             raise ValueError("No last move to undo detected!")
-        before_piece = self.pieces_last_N_Moves_beforePos.pop()
+        before_piece = self.pieces_last_N_Moves_beforePos.pop_last()
         board[last_move[0]] = before_piece
         # the piece at the 'before' spatial was the one that moved, so needs its
         # last entry in the move history deleted
         before_piece.position = last_move[0]
-        board[last_move[1]] = self.pieces_last_N_Moves_afterPos.pop()
+        board[last_move[1]] = self.pieces_last_N_Moves_afterPos.pop_last()
         return board
 
 

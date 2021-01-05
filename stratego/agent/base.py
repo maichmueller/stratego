@@ -1,4 +1,4 @@
-from typing import Dict, List, Callable
+from typing import Dict, List, Callable, Optional
 
 import numpy as np
 import copy
@@ -32,7 +32,9 @@ class Agent(ABC):
     A general abstract agent base class.
     """
 
-    def __init__(self, team: Team):
+    def __init__(
+        self, team: Team
+    ):
         self.team = team
         self.hooks: Dict[HookPoint, List[Callable]] = defaultdict(list)
 
@@ -55,11 +57,12 @@ class Agent(ABC):
         """
         raise NotImplementedError
 
-    def _register_hook(self, hook_point: HookPoint, hook: Callable):
+    def register_hooks(self, hooks_map: Dict[HookPoint, List[Callable]]):
         """
-        Add a hook which is supposed to be provided to the game.
+        Add hooks which are supposed to be executed at specific positions during the game run.
         """
-        self.hooks[hook_point].append(hook)
+        for hook_point, hooks in hooks_map.items():
+            self.hooks[hook_point].extend(hooks)
 
 
 class RLAgent(Agent, ABC):
@@ -102,7 +105,7 @@ class RLAgent(Agent, ABC):
         """
         raise NotImplementedError
 
-    def state_to_tensor(self, state: State) -> torch.Tensor:
+    def state_to_tensor(self, state: State, perspective: Optional[Team] = None) -> torch.Tensor:
         """
         Converts the state to a torch tensor according to the chosen representation.
 
@@ -110,10 +113,14 @@ class RLAgent(Agent, ABC):
         ----------
         state:  State,
             the state to convert.
+        perspective: Team (optional),
+            the team from whose perspective the representation is supposed to be built.
+            Should defaults to the agent's own team, if not provided.
 
         Returns
         -------
-        torch.Tensor
+        torch.Tensor,
+            the state representation as tensor.
         """
         raise NotImplementedError
 

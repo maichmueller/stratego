@@ -5,12 +5,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
-import time
 import os
 from tqdm import tqdm
-from torch.utils.data import DataLoader, TensorDataset
 
-from stratego.utils import AverageMeter
+
+from stratego.utils import RollingMeter
 from stratego.engine import ActionMap, GameSpecification
 
 
@@ -36,50 +35,6 @@ class NetworkWrapper(torch.nn.Module):
         self.device = device
         self.net.to(device)
 
-    def train(self, examples, epochs, batch_size=128):
-        """
-        TODO: Move this entire method to an appropriate class (maybe Coach?)
-        examples: list of examples, each example is of form (board, pi, v)
-        """
-        optimizer = optim.Adam(self.net.parameters())
-        for _ in tqdm(range(epochs), desc="Training epoch"):
-            self.net.train()
-            pi_losses = AverageMeter()
-            v_losses = AverageMeter()
-
-            data_loader = DataLoader(TensorDataset(examples), batch_size=batch_size)
-            batch_bar = tqdm(data_loader)
-            for batch_idx, batch in enumerate(data_loader):
-                boards, pis, vs, _ = batch
-
-                boards = torch.cat(boards).to(device=self.device)
-                target_pis = torch.Tensor(np.array(pis), device=self.device)
-                target_vs = torch.Tensor(
-                    np.array(vs).astype(np.float64), device=self.device
-                )
-                # compute output
-                out_pi, out_v = self.net(boards)
-                l_pi = self.loss_pi(target_pis, out_pi)
-                l_v = self.loss_v(target_vs, out_v)
-                total_loss = l_pi + l_v
-
-                # record loss
-                pi_losses.update(l_pi.item(), boards.size(0))
-                v_losses.update(l_v.item(), boards.size(0))
-
-                # compute gradient and do SGD step
-                optimizer.zero_grad()
-                total_loss.backward()
-                optimizer.step()
-
-                # plot progress
-                batch_bar.set_description(
-                    "Loss_pi: {lpi:.4f} | Loss_v: {lv:.3f}".format(
-                        lpi=pi_losses.avg,
-                        lv=v_losses.avg,
-                    )
-                )
-
     @torch.no_grad()
     def predict(self, board):
         """
@@ -90,11 +45,7 @@ class NetworkWrapper(torch.nn.Module):
 
         return torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0]
 
-    def loss_pi(self, targets, outputs):
-        return -torch.sum(targets * outputs) / targets.size()[0]
 
-    def loss_v(self, targets, outputs):
-        return torch.sum((targets - outputs.view(-1)) ** 2) / targets.size()[0]
 
     def save_checkpoint(self, folder="checkpoint", filename="checkpoint.pth.tar"):
         filepath = os.path.join(folder, filename)
