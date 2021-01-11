@@ -47,7 +47,6 @@ class Board(np.ndarray):
         if ax is None:
             ax = figure.subplots(1, 1)
 
-
         # layout = np.add.outer(range(game_size), range(game_size)) % 2  # chess-pattern board
         layout = np.zeros((game_size, game_size))
         ax.imshow(
@@ -100,7 +99,10 @@ class Board(np.ndarray):
                     if not piece.hidden or omniscient:
                         # token written on marker center
                         token_s, version_s = str(piece).split(".")
-                        color = "black" if not piece.hidden else "grey"
+                        if not piece.hidden:
+                            color = "black"
+                        else:
+                            color = "grey"
                         ax.annotate(
                             token_s,
                             xy=(pos[1], pos[0]),
@@ -146,8 +148,8 @@ class Board(np.ndarray):
         info_board = Board(np.ndarray((5, 5), dtype=object))
         opponent = player.opponent()
         for piece in self.flatten():
-            if piece is not None and not isinstance(piece, Obstacle):
-                if piece.team != opponent:
+            if piece is not None:
+                if isinstance(piece, Obstacle) or piece.team != opponent:
                     info_board[piece.position] = piece
                 else:
                     if piece.hidden:

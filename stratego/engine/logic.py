@@ -1,3 +1,4 @@
+from .piece import Obstacle
 from .game_defs import Status, MAX_NR_TURNS, Token, Team, BattleMatrix
 from .state import State
 from .position import Position, Move
@@ -43,27 +44,31 @@ class Logic(metaclass=Singleton):
             piece_att = board[from_pos]
 
             if piece_att.team == piece_def.team:
-                print("Warning, cant let pieces of same team fight!")
+                print("Warning, can't let pieces of same team fight!")
                 return False
 
             fight_outcome = BattleMatrix[piece_att.token, piece_def.token]
+            board_update = dict()
             if fight_outcome == 1:
+                # attacker won and moves onto defender spot, defender dies
                 state.dead_pieces[piece_def.team][piece_def.token] += 1
-                to_from_update = board[from_pos], None
+                board_update.update({from_pos: board[from_pos], to_pos: None})
 
             elif fight_outcome == 0:
+                # mutual annihilation, both disappear
                 state.dead_pieces[piece_def.team][piece_def.token] += 1
                 state.dead_pieces[piece_att.team][piece_att.token] += 1
-                to_from_update = None, None
+                board_update.update({from_pos: None, to_pos: None})
 
             else:
+                # attacker lost and dies, defender stays
                 state.dead_pieces[piece_att.team][piece_att.token] += 1
-                to_from_update = None, board[to_pos]
+                board_update.update({from_pos: None, to_pos: board[to_pos]})
 
         else:
-            to_from_update = board[from_pos], None
+            board_update = {from_pos: None, to_pos: board[from_pos]}
 
-        state.update_board((to_pos, from_pos), to_from_update)
+        state.update_board(board_update)
 
         state.turn_counter += 1
 
@@ -111,13 +116,11 @@ class Logic(metaclass=Singleton):
     def check_terminal(cls, state: State, flag_only=False):
         for player in (Team(0), Team(1)):
             if state.dead_pieces[player][Token.flag] == 1:
-                state.status = Status[player]
+                state.status = Status.win(player)
 
         if not flag_only:
             if state.turn_counter > MAX_NR_TURNS or any(
-                not all(
-                    move is None for move in cls.possible_moves_iter(state.board, team)
-                )
+                all(move is None for move in cls.possible_moves_iter(state.board, team))
                 for team in (Team.blue, Team.red)
             ):
                 state.status = Status.draw
@@ -152,10 +155,10 @@ class Logic(metaclass=Singleton):
             return False
 
         if not board[pos_after] is None:
-            if board[pos_after].team == board[pos_before].team:
-                return False  # cant fight own pieces
-            if board[pos_after].token == 99:
+            if isinstance(board[pos_after], Obstacle):
                 return False  # cant fight obstacles
+            elif board[pos_after].team == board[pos_before].team:
+                return False  # cant fight own pieces
 
         move_dist = spatial.distance.cityblock(pos_before, pos_after)
         if move_dist > 1:
@@ -187,7 +190,12 @@ class Logic(metaclass=Singleton):
         team = Team(team)
         game_size = board.shape[0]
         for pos, piece in np.ndenumerate(board):
-            if piece is not None and piece.team == team and piece.can_move:
+            if (
+                piece is not None
+                and not isinstance(piece, Obstacle)
+                and piece.team == team
+                and piece.can_move
+            ):
                 # board position has a movable piece of your team on it
                 for move in cls.moves_iter(
                     piece.token, Position(tuple(map(int, pos))), game_size

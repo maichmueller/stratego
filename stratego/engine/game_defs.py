@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC
 from enum import Enum
 from functools import singledispatchmethod
-from typing import Union, Tuple, Dict
+from typing import Union, Tuple, Dict, Sequence
 
 
 class Team(Enum):
@@ -60,12 +60,14 @@ class Status(Enum):
     draw = 0
 
     @singledispatchmethod
-    def __class_getitem__(cls, team: int):
+    @classmethod
+    def win(cls, team: int):
         raise NotImplementedError
 
-    @__class_getitem__.register(int)
-    @__class_getitem__.register(Team)
-    def _(self, team: Union[int, Team]):
+    @win.register(int)
+    @win.register(Team)
+    @classmethod
+    def _(cls, team: Union[int, Team]):
         team = Team(team)
         if team == Team.red:
             return Status.win_red
@@ -100,8 +102,8 @@ class BattleMatrix(ABC):
 
     matrix = _create_battle_matrix()
 
-    def __class_getitem__(cls, token_att: Token, token_def: Token):
-        return cls.matrix[token_att, token_def]
+    def __class_getitem__(cls, tokens: Sequence[Token]):
+        return cls.matrix[tokens[0], tokens[1]]
 
 
 def build_specs(game_size: int):
@@ -178,13 +180,15 @@ class GameSpecification:
             elif game_size in ["l", "large"]:
                 game_size = 10
             else:
-                raise ValueError(f"Game size {game_size} not supported.")
+                raise ValueError(f"'game_size' parameter as string must be one of\n"
+                                 f"\t['s', 'small', 'm', 'medium', 'l', 'large'].")
         elif isinstance(game_size, int):
             assert game_size in [
                 5,
                 7,
                 10,
-            ], "Integer 'game_size' parameter must be one of [5, 7, 10]."
+            ], "'game_size' parameter as integer must be one of\n" \
+               "\t[5, 7, 10]."
         self._game_specs = _game_specs[game_size]
 
     @property

@@ -9,8 +9,13 @@ from typing import *
 
 
 class PieceBase(ABC):
-    def __init__(self, position: Position, hidden: bool = True, can_move: bool = True):
-        self.position = position
+    def __init__(
+        self,
+        position: Union[Position, Tuple[int, int]],
+        hidden: bool = True,
+        can_move: bool = True,
+    ):
+        self.position = Position(position)
         self.hidden = hidden
         self.can_move = can_move
 
@@ -21,7 +26,7 @@ class PieceBase(ABC):
 class Piece(PieceBase):
     def __init__(
         self,
-        position: Position,
+        position: Union[Position, Tuple[int, int]],
         team: Union[int, Team],
         token: Union[int, Token],
         version: int = 1,
@@ -47,9 +52,11 @@ class Piece(PieceBase):
         return hash((self.team, self.token, self.version))
 
     def __repr__(self):
-        return f"{'B' if self.team == Team.blue else 'R'}|" \
-               f"[{self.token.value}.{self.version}]" \
-               f"{'_H' if self.hidden else ''}"
+        return (
+            f"{'B' if self.team == Team.blue else 'R'}"
+            f"[{self.token.value}.{self.version}]"
+            f"{'_?' if self.hidden else ''}"
+        )
 
     @singledispatchmethod
     def similar(self, other_piece: Piece) -> bool:
@@ -86,6 +93,9 @@ class Obstacle(PieceBase):
     def change_position(self, new_pos):
         raise NotImplementedError("An obstacle can't move.")
 
+    def __repr__(self):
+        return "OBS"
+
 
 class ShadowPiece(PieceBase):
     """
@@ -95,3 +105,6 @@ class ShadowPiece(PieceBase):
     def __init__(self, position: Position, team: Team):
         super().__init__(position)
         self.team = team
+
+    def __repr__(self):
+        return f"{'B' if self.team == Team.blue else 'R'}[?]"

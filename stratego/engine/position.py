@@ -13,12 +13,15 @@ class Position:
     @__init__.register(tuple)
     @__init__.register(list)
     @__init__.register(np.ndarray)
-    def _(self, pos: Sequence[int]):
+    def _(self, pos):
         assert len(pos) == 2, "Position sequence must have length 2."
-        self.coords = pos
+        self.coords = tuple(pos)
 
     @__init__.register(int)
-    def _(self, x: int, y: int):
+    @__init__.register(np.int16)
+    @__init__.register(np.int32)
+    @__init__.register(np.int64)
+    def _(self, x, y):
         self.coords = x, y
 
     @property
@@ -28,6 +31,13 @@ class Position:
     @property
     def y(self):
         return self.coords[1]
+
+    def __abs__(self):
+        # we're using the 1-norm as metric of |Position(x, y)|
+        return abs(self.x) + abs(self.y)
+
+    def __hash__(self):
+        return hash(self.coords)
 
     def __add__(self, other):
         return Position(self.x + other.x, self.y + other.y)
@@ -75,3 +85,6 @@ class Move:
 
     def __getitem__(self, i: int):
         return self.from_to[i]
+
+    def __repr__(self):
+        return f"{str(self.from_)}->{str(self.to_)}"

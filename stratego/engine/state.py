@@ -1,4 +1,5 @@
 import copy
+from collections import defaultdict
 from typing import Sequence, Optional, Tuple, Dict, List
 
 from .game_defs import Status, Token, Team
@@ -77,19 +78,23 @@ class State:
         self._active_team: Team = Team((turn_count + int(self._starting_team)) % 2)
 
         if dead_pieces is not None:
+            assert all(
+                isinstance(dead_pieces[team], defaultdict)
+                for team in [Team.blue, Team.red]
+            ), "dead_pieces parameter needs to contain a 'defaultdict(int)' for each team."
             self.dead_pieces = dead_pieces
         else:
-            self.dead_pieces = {Team(0): dict(), Team(1): dict()}
+            self.dead_pieces = {Team(0): defaultdict(int), Team(1): defaultdict(int)}
 
     def __str__(self):
         return (
-            f"{np.array_repr(self.board)}\n"
             f"Starting Team: {self._starting_team.name}\n"
             f"Active Team: {self._active_team.name}\n"
             f"Status: {self.status.name}\n"
             f"Turns: {str(self.turn_counter)}\n"
             f"Dead Pieces Blue: {self.dead_pieces[Team.blue]}\n"
             f"Dead Pieces Red: {self.dead_pieces[Team.red]}\n"
+            f"{np.array_repr(self.board)}\n"
         )
 
     def __hash__(self):
@@ -126,18 +131,15 @@ class State:
 
     def update_board(
         self,
-        positions: Sequence[Position],
-        pieces: Sequence[Optional[Piece]],
+        pos_to_piece_map: Dict[Position, Piece]
     ):
         """
         Parameters
         ----------
-        positions: Position,
-            piece board spatial
-        pieces: Piece,
-            the new piece at the spatial
+        pos_to_piece_map: dict,
+            the dictionary with positions as keys and the pieces as values.
         """
-        for pos, piece in zip(positions, pieces):
+        for pos, piece in pos_to_piece_map.items():
             if piece is not None:
                 piece.change_position(pos)
             self.board[pos] = piece

@@ -1,3 +1,5 @@
+from typing import Union
+
 import numpy as np
 from matplotlib import pyplot as plt
 
@@ -7,6 +9,7 @@ from torch.nn import functional as F
 from torch.autograd import Variable
 import copy
 from inspect import signature
+from dataclasses import dataclass
 
 
 class Singleton(type):
@@ -195,19 +198,17 @@ def visualize_features(n_points, environment, env_name):
     plt.savefig("{}-tsne.png".format(env_name))
 
 
+@dataclass
 class RollingMeter(object):
     """
     Computes and stores the average and current value
-    Imported from https://github.com/pytorch/examples/blob/master/imagenet/main.py#L247-L262
     """
-
-    def __init__(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.max = 0
-        self.min = 0
-        self.count = 0
+    val: Union[int, float] = 0
+    avg: Union[int, float] = 0
+    sum: Union[int, float] = 0
+    max: Union[int, float] = 0
+    min: Union[int, float] = 0
+    count: Union[int, float] = 0
 
     def push(self, val, n=1):
         self.val = val

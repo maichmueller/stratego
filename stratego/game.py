@@ -54,7 +54,13 @@ class Game:
             self.reset()
 
     def __str__(self):
-        return np.array_repr(self.state.board)
+        return (
+            f"Agent Blue: {self.agents[Team.blue]}\n"
+            f"Agent Red:  {self.agents[Team.red]}\n"
+            f"Game size: {self.specs.game_size}\n"
+            f"Logic: {type(self.logic).__name__}\n"
+            f"State:\n{str(self.state)}"
+        )
 
     def __hash__(self):
         return hash(str(self))
@@ -71,7 +77,7 @@ class Game:
         )
         return self
 
-    def run_game(self, show=False, **kwargs):
+    def run_game(self, show: bool=False, pause: float = 0., **kwargs):
         game_over = False
         block = kwargs.pop("block", False)
         kwargs_print = slice_kwargs(Board.print_board, kwargs)
@@ -80,6 +86,7 @@ class Game:
             # if the engine progress should be shown, then we refer to the board print method.
             def print_board():
                 self.state.board.print_board(**kwargs_print)
+                plt.pause(pause)
                 plt.show(block=block)
 
         else:
@@ -175,7 +182,6 @@ class Game:
             the setup, in numpy array form
         """
         rng = self.rng_state
-
 
         board = Board(
             np.empty((self.specs.game_size, self.specs.game_size), dtype=object)

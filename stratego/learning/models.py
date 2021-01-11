@@ -1,3 +1,4 @@
+from abc import ABC
 from typing import Optional
 
 import numpy as np
@@ -8,21 +9,17 @@ from torch import optim
 import os
 from tqdm import tqdm
 
-
-from stratego.utils import RollingMeter
 from stratego.engine import ActionMap, GameSpecification
 
 
-class NetworkWrapper(torch.nn.Module):
+class NetworkWrapper(torch.nn.Module, ABC):
     def __init__(
         self,
-        net: torch.nn.Module,
         action_map: Optional[ActionMap] = None,
         game_size: Optional[int] = None,
         device="cpu",
     ):
         super().__init__()
-        self.net = net
         self.game_size = game_size
         self.action_map = (
             action_map
@@ -40,12 +37,10 @@ class NetworkWrapper(torch.nn.Module):
         """
         board: np array with board
         """
-        self.net.eval()
+        self.eval()
         pi, v = self.net(board)
 
         return torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0]
-
-
 
     def save_checkpoint(self, folder="checkpoint", filename="checkpoint.pth.tar"):
         filepath = os.path.join(folder, filename)
@@ -58,12 +53,14 @@ class NetworkWrapper(torch.nn.Module):
             os.mkdir(folder)
         torch.save(
             {
-                "state_dict": self.net.state_dict(),
+                "state_dict": self.state_dict(),
             },
             filepath,
         )
 
-    def load_checkpoint(self, folder="checkpoint", filename="checkpoint.pth.tar", device: str = "cpu"):
+    def load_checkpoint(
+        self, folder="checkpoint", filename="checkpoint.pth.tar", device: str = "cpu"
+    ):
         filepath = os.path.join(folder, filename)
         if not os.path.exists(filepath):
             raise ValueError("No model in path {}".format(filepath))
@@ -149,31 +146,32 @@ class NNLinear(nn.Module):
 
     def __init__(
         self,
-        D_in,
-        D_out,
-        nr_lin_layers,
-        start_layer_exponent=8,
-        activation_function=nn.ReLU(),
+        dim_in: int,
+        dim_out: int,
+        nr_lin_layers: int,
+        start_layer_exponent: int = 8,
+        activation_function: torch.nn.functional = nn.ReLU(),
+        device: str = "cpu",
     ):
         super().__init__()
-        self.cuda_available = torch.cuda.is_available()
-        self.D_in = D_in
+        self.dim_in = dim_in
+        self.dim_out = dim_out
         self.start_layer_exponent = start_layer_exponent
-        self.Hidden = int(pow(2, start_layer_exponent))
-        self.D_out = D_out
+        self.hidden_nodes = 2 ** start_layer_exponent
         self.nr_lin_layers = nr_lin_layers
-        self.linear_layers = nn.ModuleList([nn.Linear(self.D_in, self.Hidden)])
+        self.linear_layers = nn.ModuleList([nn.Linear(self.dim_in, self.hidden_nodes)])
         for i in range(self.nr_lin_layers - 2):
-            denom1 = int(pow(2, i))
-            denom2 = int(pow(2, i + 1))
+            denom1 = 2 ** i
+            denom2 = 2 ** (i + 1)
             self.linear_layers.extend(
-                [nn.Linear(int(self.Hidden / denom1), int(self.Hidden / denom2))]
+                [nn.Linear(self.hidden_nodes / denom1, self.hidden_nodes / denom2)]
             )
 
         self.linear_layers.extend(
-            [nn.Linear(int(self.Hidden / (pow(2, self.nr_lin_layers - 2))), self.D_out)]
+            [nn.Linear(self.hidden_nodes / (2 ** (self.nr_lin_layers - 2)), self.dim_out)]
         )
         self.activation = activation_function
+        self.to(device)
 
     def forward(self, x):
         for lin_layer in self.linear_layers[:-1]:
@@ -213,7 +211,7 @@ class ELaborateConvFC(nn.Module):
         out_features = self.fc_net.linear_layers[-1].in_features
         self.fc_net.linear_layers = self.fc_net.linear_layers[:-1]
         self.action_value_layer = nn.Linear(
-            in_features=out_features, out_features=self.fc_net.D_out
+            in_features=out_features, out_features=self.fc_net.dim_out
         )
         self.board_value_layer = nn.Linear(in_features=out_features, out_features=1)
         self.game_size = game_size
