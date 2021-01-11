@@ -55,7 +55,7 @@ class Piece(PieceBase):
         return (
             f"{'B' if self.team == Team.blue else 'R'}"
             f"[{self.token.value}.{self.version}]"
-            f"{'_?' if self.hidden else ''}"
+            f"{'?' if self.hidden else ''}"
         )
 
     @singledispatchmethod

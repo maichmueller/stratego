@@ -1,5 +1,12 @@
 from .piece import Obstacle
-from .game_defs import Status, MAX_NR_TURNS, Token, Team, BattleMatrix
+from .game_defs import (
+    Status,
+    MAX_NR_TURNS,
+    Token,
+    Team,
+    BattleMatrix,
+    GameSpecification,
+)
 from .state import State
 from .position import Position, Move
 from .board import Board
@@ -113,17 +120,22 @@ class Logic(metaclass=Singleton):
         return state.status
 
     @classmethod
-    def check_terminal(cls, state: State, flag_only=False):
+    def check_terminal(cls, state: State, specs: GameSpecification):
         for player in (Team(0), Team(1)):
-            if state.dead_pieces[player][Token.flag] == 1:
-                state.status = Status.win(player)
-
-        if not flag_only:
-            if state.turn_counter > MAX_NR_TURNS or any(
-                all(move is None for move in cls.possible_moves_iter(state.board, team))
-                for team in (Team.blue, Team.red)
+            dead_pieces = state.dead_pieces[player]
+            if dead_pieces[Token.flag] == 1 or all(
+                dead_pieces[token] == count
+                for token, count in specs.token_count.items()
+                if token not in [Token.flag, Token.bomb]
+                # all move-able enemy pieces have been captured -> opponent won
             ):
-                state.status = Status.draw
+                state.status = Status.win(player.opponent())
+
+        if state.turn_counter >= MAX_NR_TURNS or any(
+            all(move is None for move in cls.possible_moves_iter(state.board, team))
+            for team in (Team.blue, Team.red)
+        ):
+            state.status = Status.draw
 
         state.status_checked = True
 

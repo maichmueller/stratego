@@ -1,4 +1,4 @@
-from typing import Dict, List, Callable, Optional
+from typing import Dict, List, Callable, Optional, Union
 
 import numpy as np
 import copy
@@ -33,14 +33,14 @@ class Agent(ABC):
     """
 
     def __init__(
-        self, team: Team
+        self, team: Union[int, Team]
     ):
-        self.team = team
+        self.team = Team(team)
         self.hooks: Dict[HookPoint, List[Callable]] = defaultdict(list)
 
     def decide_move(self, state: State, logic: Logic = Logic()) -> Move:
         """
-        Decide the move to make for the given state of the engine.
+        Decide the move to make for the given state of the game.
 
         Parameters
         ----------
@@ -48,7 +48,7 @@ class Agent(ABC):
         state: State,
             the state on which the decision is to be made.
         logic: Logic,
-            the logic to use in the engine. Can be changed to vary the engine mode if desirable.
+            the logic to use in the engine. Can be changed to vary the game mode if desirable.
 
         Returns
         -------
@@ -72,7 +72,7 @@ class RLAgent(Agent, ABC):
 
     def __init__(
         self,
-        team: Team,
+        team: Union[int, Team],
         action_map: ActionMap,
         model: torch.nn.Module,
         reward_map: Dict[RewardToken, float],
@@ -135,8 +135,8 @@ class MCAgent(Agent, ABC):
     strategy.
     """
 
-    def __init__(self, team: Team, game_size: int):
-        super().__init__(team)
+    def __init__(self, team: Union[int, Team], game_size: int):
+        super().__init__(team=team)
         self.knowledge_board: Dict[Position, Piece] = self._construct_knowledge_board(
             GameSpecification(game_size).token_count
         )

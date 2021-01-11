@@ -77,7 +77,7 @@ class Game:
         )
         return self
 
-    def run_game(self, show: bool=False, pause: float = 0., **kwargs):
+    def run_game(self, show: bool = False, pause: float = 0.0, **kwargs):
         game_over = False
         block = kwargs.pop("block", False)
         kwargs_print = slice_kwargs(Board.print_board, kwargs)
@@ -94,7 +94,7 @@ class Game:
             def print_board():
                 pass
 
-        if (status := self.logic.get_status(self.state)) != Status.ongoing:
+        if (status := self.logic.get_status(self.state, specs=self.specs)) != Status.ongoing:
             game_over = True
 
         self._trigger_hooks(HookPoint.pre_run, self.state)
@@ -130,7 +130,9 @@ class Game:
         self._trigger_hooks(HookPoint.pre_move_decision, self.state)
 
         if move is None:
-            move = agent.decide_move(self.state.get_info_state(player))
+            move = agent.decide_move(
+                self.state.get_info_state(player), logic=self.logic
+            )
 
         self._trigger_hooks(HookPoint.post_move_decision, self.state, move)
 
@@ -163,7 +165,7 @@ class Game:
                 self.reward_agent(agent, RewardToken.kill_mutually)
 
         # test if game is over
-        if (status := self.logic.get_status(self.state)) != Status.ongoing:
+        if (status := self.logic.get_status(self.state, specs=self.specs)) != Status.ongoing:
             return status
 
         return Status.ongoing

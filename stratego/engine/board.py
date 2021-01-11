@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import operator
 from typing import Optional
 
 from .game_defs import Token
@@ -8,7 +9,7 @@ from .position import Position
 
 import numpy as np
 
-from functools import singledispatchmethod
+from functools import singledispatchmethod, reduce
 import matplotlib.pyplot as plt
 
 
@@ -24,7 +25,8 @@ class Board(np.ndarray):
         figure: Optional[plt.Figure] = None,
         ax: Optional[plt.Axes] = None,
         omniscient: bool = True,
-        **kwargs
+        boardlength_in_inch: float = 6,
+        **kwargs,
     ):
         """
         Plots the board in a pyplot figure.
@@ -40,12 +42,21 @@ class Board(np.ndarray):
             optional keyword arguments for plt.Figure
         """
         game_size = self.shape[0]
+
         if figure is None:
-            figure = plt.figure(num=kwargs.pop("num", 42000), **kwargs)
+            figure = plt.figure(
+                num=kwargs.pop("num", 42000),
+                figsize=kwargs.pop("figsize", (boardlength_in_inch, boardlength_in_inch)),
+                **kwargs,
+            )
         else:
             figure.clf()
         if ax is None:
             ax = figure.subplots(1, 1)
+        game_scale = 5 / game_size
+        font_scale_ratio = 10 / game_size
+        piece_markersize = 55 * game_scale
+        obs_markersize = 65 * game_scale
 
         # layout = np.add.outer(range(game_size), range(game_size)) % 2  # chess-pattern board
         layout = np.zeros((game_size, game_size))
@@ -93,7 +104,7 @@ class Board(np.ndarray):
                     piece_marker = "".join(("-", color, form))
                     alpha = 0.3 if piece.hidden else 0.7
                     ax.plot(
-                        pos[1], pos[0], piece_marker, markersize=37, alpha=alpha
+                        pos[1], pos[0], piece_marker, markersize=piece_markersize, alpha=alpha
                     )  # plot marker
 
                     if not piece.hidden or omniscient:
@@ -107,21 +118,21 @@ class Board(np.ndarray):
                             token_s,
                             xy=(pos[1], pos[0]),
                             color=color,
-                            size=15,
+                            size=15 * font_scale_ratio,
                             ha="center",
                             va="center",
                         )
                         ax.annotate(
                             f"/{version_s}",
-                            xy=(pos[1] + .25, pos[0] - .1),
+                            xy=(pos[1] + 0.35, pos[0] - 0.15),
                             color=color,
-                            size=10,
+                            size=15 * 2/3 * font_scale_ratio,
                             ha="center",
                             va="center",
                         )
                 elif isinstance(piece, Obstacle):
                     ax.plot(
-                        pos[1], pos[0], "s", color="k", markersize=37, alpha=1
+                        pos[1], pos[0], "s", color="k", markersize=obs_markersize, alpha=1
                     )  # plot marker
 
         # invert y makes numbering more natural.
@@ -145,7 +156,7 @@ class Board(np.ndarray):
         Board,
             the information board
         """
-        info_board = Board(np.ndarray((5, 5), dtype=object))
+        info_board = Board(np.ndarray(self.shape, dtype=object))
         opponent = player.opponent()
         for piece in self.flatten():
             if piece is not None:

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from .position import Position
+
 from abc import ABC
 from enum import Enum
 from functools import singledispatchmethod
 from typing import Union, Tuple, Dict, Sequence
+
 
 
 class Team(Enum):
@@ -192,17 +195,17 @@ class GameSpecification:
         self._game_specs = _game_specs[game_size]
 
     @property
-    def token_count(self):
+    def token_count(self) -> Dict[Token, int]:
         return self._game_specs[0]
 
     @property
-    def obstacle_positions(self):
+    def obstacle_positions(self) -> Sequence[Position]:
         return self._game_specs[1]
 
     @property
-    def setup_rows(self):
+    def setup_rows(self) -> Dict[Team, Sequence[int]]:
         return self._game_specs[2]
 
     @property
-    def game_size(self):
+    def game_size(self) -> int:
         return self._game_specs[3]
