@@ -1,5 +1,6 @@
 import math
-from typing import Sequence, Tuple, Dict, List
+from copy import deepcopy
+from typing import Sequence, Tuple, Dict, List, Optional
 
 import torch
 
@@ -41,7 +42,7 @@ class MCTS:
         self.Vs: Dict[str, np.ndarray] = {}  # stores valid moves for state s
 
     def policy(
-        self, state: State, agent: RLAgent, temperature: float = 1.0
+        self, state: State, agent: RLAgent, perspective: Optional[Team] = None, temperature: float = 1.0
     ) -> np.ndarray:
         """
         This function performs n_mcts_sims simulations of MCTS starting from the given
@@ -53,6 +54,8 @@ class MCTS:
             the state whose policy we want.
         agent: RLAgent,
             the reinforcement learning agent for which the policy is intended.
+        perspective: Team,
+            the team for which the policy is supposed to be computed.
         temperature: float,
             the exploration temperature T. Higher values will push the policy
             towards a uniform distribution via
@@ -67,12 +70,15 @@ class MCTS:
             a policy vector where the probability of the a-th action is proportional to
                 Nsa[(s,a)] ** (1 / temperature)
         """
-        for i in range(self.n_mcts_sims):
-            value = self.search(state, agent)
-            assert value != float("inf"), "Returned board value is infinite."
+        if perspective is None:
+            perspective = agent.team
 
-        if state.flipped_teams:
-            # return the state back to its original setting
+        for i in range(self.n_mcts_sims):
+            value = self.search(deepcopy(state), agent, perspective=perspective)
+            assert value != float("inf"), "Computed state value is infinite."
+
+        if perspective != Team.blue and not state.flipped_teams:
+            # ensure the chosen perspective is seen as team blue
             state.flip_teams()
 
         s = str(state)
@@ -80,9 +86,14 @@ class MCTS:
         counts = np.array(
             [
                 self.Nsa[(s, a)] if (s, a) in self.Nsa else 0
-                for a in range(len(self.action_map))
+                for a in self.action_map
             ]
         )
+
+        if state.flipped_teams:
+            state.flip_teams()
+
+            # reset the flipping
 
         if temperature == 0:
             best_act = int(np.argmax(counts))
@@ -94,7 +105,7 @@ class MCTS:
         policy = counts / counts.sum()
         return policy
 
-    def search(self, state: State, agent: RLAgent, logic: Logic = Logic()):
+    def search(self, state: State, agent: RLAgent, perspective: Team, logic: Logic = Logic()):
         """
         This function performs one iteration of MCTS. It iterates, until a leaf node is found.
         The action chosen at each node is one that has the maximum upper confidence bound as
@@ -111,8 +122,8 @@ class MCTS:
         """
         turn_counter_pre = state.turn_counter
 
-        # (state, action) -> perspective
-        sa_to_p = dict()
+        # (state, action) -> value sign
+        sa_to_sign = dict()
 
         # this simply initializes the variable.
         # If one finds this value later in the tree, then there is a bug in the logic.
@@ -127,19 +138,19 @@ class MCTS:
             # get string representation of state
             s = str(state)
 
-            if (state.active_team == agent.team) == state.flipped_teams:
+            if (state.active_team == perspective) == state.flipped_teams:
                 # adjust for the correct perspective:
                 # The value needs to be always seen from the perspective of the 'agent'.
 
                 # The condition is logically equivalent to:
-                #       (agent == active player AND teams flipped)
-                #    OR (agent != active player AND teams not flipped)
+                #       (selected team == active player AND teams flipped)
+                #    OR (selected team != active player AND teams not flipped)
                 # -> Opponent perspective.
                 # and in these cases we then need to multiply with -1
                 # (assuming symmetric rewards).
-                perspective = -1
+                value_sign = -1
             else:
-                perspective = 1
+                value_sign = 1
 
             if s not in self.Es:
                 self.Es[s] = logic.get_status(state)
@@ -164,26 +175,19 @@ class MCTS:
                     root = False
 
                 a = self._select_action(s, policy, valids)
-                sa_to_p[(s, a)] = perspective
+                sa_to_sign[(s, a)] = value_sign
 
                 move = self.action_map.action_to_move(a, state, Team.blue)
                 self.logic.execute_move(state, move)
 
-        if state.flipped_teams:
-            # reset the state to its original team orientation
-            state.flip_teams()
-
-        # undo all the turns that were made during the search phase
-        self.logic.undo_last_n_turns(state, n=state.turn_counter - turn_counter_pre)
-
-        for (s, a), per in sa_to_p:
+        for (s, a), per in sa_to_sign:
             # for every (state, action) pair: update its Q-value and visitation counter.
             self._update_qsa(s, a, value * per)
             # increment the visitation counter of this state
             self.Ns[s] += 1
 
         # adjust for team perspective and return the value
-        return value * perspective
+        return value * value_sign
 
     def search_recursive(
         self, state: State, agent: RLAgent, root: bool = False, logic: Logic = Logic()
@@ -237,8 +241,6 @@ class MCTS:
 
         value = self.search_recursive(state, agent, root=False)
 
-        self.logic.undo_last_n_turns(state, n=1)
-
         self._update_qsa(s, a, value)
         self.Ns[s] += 1
 
@@ -263,6 +265,7 @@ class MCTS:
         cur_best = -float("inf")
         best_action = -1
         for a in np.where(valid_actions)[0]:
+            a = self.action_map[a]
             if (s, a) in self.Qsa:
                 u = self.Qsa[(s, a)] + self.cpuct * policy[a] * math.sqrt(
                     self.Ns[s]

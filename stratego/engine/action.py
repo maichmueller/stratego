@@ -14,39 +14,64 @@ import numpy as np
 
 class Action:
     def __init__(
-        self,
-        actor: Union[Tuple[Token, int], Piece],
-        effect: Position
+        self, actor: Union[Tuple[Token, int], Piece], effect: Position
     ):
-        self.actor: Tuple[Token, int]
+        # read only actor member
+        self._actor: Tuple[Token, int]
         if isinstance(actor, tuple):
-            self.actor = actor
+            assert len(actor) == 2, "'actor' parameter as tuple must have length 2."
+            self._actor = actor
         elif isinstance(actor, Piece):
-            self.actor = actor.token, actor.version
+            self._actor = actor.token, actor.version
         else:
             raise ValueError("Actor parameter needs to be either Tuple or Piece.")
-        self.effect = effect
+        # read only effect member
+        self._effect: Position = effect
+        # cached hash value.
+        # Since no member variable is ever supposed to change,
+        # it is valid to cache this value.
+        self._hash = hash(self.actor + self.effect.coords)
+
+    @property
+    def effect(self):
+        return self._effect
+
+    @property
+    def actor(self):
+        return self._actor
 
     def __call__(self, pos: Position):
         return pos + self.effect
 
+    def __hash__(self):
+        return self._hash
+
     def __repr__(self):
         return f"{self.actor}: {self.effect}"
 
-    def __hash__(self):
-        return hash(self.actor)
+    def __neg__(self):
+        # invert the action (e.g. to represent its effect for the opposite player).
+        return Action(self.actor, -self.effect)
+
+    def __eq__(self, other: Action):
+        return self.actor == other.actor and self.effect == other.effect
 
 
 class ActionMap:
     def __init__(self, game_specs: GameSpecification):
         self.specs = game_specs
-        self.actions, self.actions_inverse = self._build_action_map(
-            self.specs.token_count
-        )
+        (
+            self.actions,  # type: List[Action]
+            self.actions_inverse,  # type: Dict[Action, Action]
+            self.actors_to_actions,  # type: Dict[Tuple[Token, int], List[Action]]
+        ) = self._build_action_map(self.specs.token_count)
         self.action_dim = len(self.actions)
 
     def __len__(self):
         return len(self.actions)
+
+    def __iter__(self):
+        return iter(self.actions)
 
     @singledispatchmethod
     def __getitem__(self, arg):
@@ -58,40 +83,47 @@ class ActionMap:
 
     @__getitem__.register
     def _(self, arg: tuple):
-        return self.actions_inverse[arg]
+        return self.actors_to_actions[arg]
 
     @__getitem__.register
     def _(self, arg: Piece):
-        return self.actions_inverse[arg.token, arg.version]
+        return self.actors_to_actions[arg.token, arg.version]
 
     def _build_action_map(
         self, available_types: Dict[Token, int], logic: Logic = Logic()
     ):
         actions: List[Action] = []
-        actions_inverse: Dict[Tuple[int, int], List[int]] = dict()
+        actions_inverse: Dict[Action, int] = dict()
+        actors_to_actions: Dict[Tuple[Token, int], List[Action]] = dict()
+
         for token, freq in available_types.items():
             if token in [Token.flag, Token.bomb]:
                 continue
 
             moves: Iterator[Move] = logic.moves_iter(
-                    token,
-                    Position(0, 0),
-                    self.specs.game_size,
-                    distances=[self.specs.game_size] * 4,
+                token,
+                Position(0, 0),
+                self.specs.game_size,
+                distances=[self.specs.game_size] * 4,
             )
 
             for version in range(1, freq + 1):
-                la_before = len(actions)
-
+                actor = (token, version)
+                actors_to_actions[actor] = []
                 for (pos_before, pos_after) in moves:
-                    actions.append(Action((token, version), pos_after - pos_before))
+                    action = Action(
+                        (token, version), pos_after - pos_before
+                    )
+                    actions.append(action)
+                    actors_to_actions[actor].append(action)
 
-                la_after = len(actions)
+            for idx, action in enumerate(actions):
+                neg_action = -action
+                for other_idx, other_action in enumerate(actions[idx + 1 :]):
+                    if other_action == neg_action:
+                        actions_inverse[action] = other_idx
 
-                actions_inverse[actions[-1].actor] = list(range(la_before, la_after))
-
-        self.actions_inverse = actions_inverse
-        return actions, actions_inverse
+        return actions, actions_inverse, actors_to_actions
 
     def actions_mask(
         self, board: Board, team: Union[Team, int], logic: Logic = Logic()
