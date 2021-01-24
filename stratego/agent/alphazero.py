@@ -93,42 +93,11 @@ class AlphaZero(RLAgent):
         )
         return board_state
 
-    def invert_move(self, move):
-        if self.invert_moves:
-            from_, to_ = move
-            game_size = self.board.shape[0]
-            return (
-                (game_size - 1 - from_[0], game_size - 1 - from_[1]),
-                (game_size - 1 - to_[0], game_size - 1 - to_[1]),
-            )
-        return move
-
     def choose_action(self, state):
         self.model.eval()
         state_action_values = self.model(state).view(-1)
         action = self.action_map[int(torch.argmax(state_action_values))]
         return action
-
-    def force_canonical(self, player):
-        """
-        Make the given player be team 0.
-        :param player: int, the team to convert to
-        """
-        if player == 0 and self.canonical_teams:
-            # player 0 is still team 0
-            return
-        elif player == 1 and not self.canonical_teams:
-            # player 1 has already been made 0 previously
-            return
-        else:
-            # flip team 0 and 1 and note down the change in teams
-            self.canonical_teams = not self.canonical_teams
-            self.board = np.flip(self.board)
-            for pos, piece in np.ndenumerate(self.board):
-                # flip all team attributes
-                if piece is not None and piece.team != 99:
-                    piece.team ^= 1
-                    piece.position = pos
 
     def state_representation(self, player: Team):
         conditions = []

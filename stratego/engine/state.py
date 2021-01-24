@@ -68,8 +68,8 @@ class State:
         self.history: History = history if history is not None else History()
         self.game_size: int = board.shape[0]
 
-        self.status: Status = status
-        self.status_checked: bool = False
+        self._status: Status = status
+        self._status_checked: bool = False
 
         self.flipped_teams: bool = flipped_teams
 
@@ -111,8 +111,28 @@ class State:
         return self._starting_team
 
     @property
+    def status_checked(self):
+        # no outside manipulation intended
+        return self._status_checked
+
+    @property
     def turn_counter(self):
         return self._turn_counter
+
+    @property
+    def status(self):
+        return self._status
+
+    def set_status(self, status: Status):
+        self._status = status
+        self._status_checked = True
+
+    def unset_status(self):
+        self._status = Status.ongoing
+        self._status_checked = False
+
+    def unset_status_check(self):
+        self._status_checked = False
 
     @turn_counter.setter
     def turn_counter(self, count: int):
@@ -143,7 +163,7 @@ class State:
             if piece is not None:
                 piece.change_position(pos)
             self.board[pos] = piece
-        self.status_checked = False
+        self._status_checked = False
         return
 
     @staticmethod

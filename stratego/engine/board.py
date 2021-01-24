@@ -54,9 +54,9 @@ class Board(np.ndarray):
         if ax is None:
             ax = figure.subplots(1, 1)
         game_scale = 5 / game_size
-        font_scale_ratio = 10 / game_size
-        piece_markersize = 55 * game_scale
-        obs_markersize = 65 * game_scale
+        font_scale_ratio = 6 / game_size
+        piece_markersize = 35 * game_scale
+        obs_markersize = 43 * game_scale
 
         # layout = np.add.outer(range(game_size), range(game_size)) % 2  # chess-pattern board
         layout = np.zeros((game_size, game_size))
@@ -134,6 +134,9 @@ class Board(np.ndarray):
                     ax.plot(
                         pos[1], pos[0], "s", color="k", markersize=obs_markersize, alpha=1
                     )  # plot marker
+
+        ax.set_xticks(range(game_size))
+        ax.set_yticks(range(game_size))
 
         # invert y makes numbering more natural.
         # Puts team blue on bottom, red on top

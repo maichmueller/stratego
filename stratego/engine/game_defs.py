@@ -8,7 +8,6 @@ from functools import singledispatchmethod
 from typing import Union, Tuple, Dict, Sequence
 
 
-
 class Team(Enum):
     blue = 0
     red = 1
@@ -60,7 +59,7 @@ class Status(Enum):
     ongoing = 404
     win_blue = 1
     win_red = -1
-    draw = 0
+    tie = 0
 
     @singledispatchmethod
     @classmethod
@@ -183,15 +182,14 @@ class GameSpecification:
             elif game_size in ["l", "large"]:
                 game_size = 10
             else:
-                raise ValueError(f"'game_size' parameter as string must be one of\n"
-                                 f"\t['s', 'small', 'm', 'medium', 'l', 'large'].")
+                raise ValueError(
+                    f"'game_size' parameter as string must be one of\n"
+                    f"\t['s', 'small', 'm', 'medium', 'l', 'large']."
+                )
         elif isinstance(game_size, int):
-            assert game_size in [
-                5,
-                7,
-                10,
-            ], "'game_size' parameter as integer must be one of\n" \
-               "\t[5, 7, 10]."
+            assert game_size in [5, 7, 10,], (
+                "'game_size' parameter as integer must be one of\n" "\t[5, 7, 10]."
+            )
         self._game_specs = _game_specs[game_size]
 
     @property

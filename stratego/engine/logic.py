@@ -110,8 +110,7 @@ class Logic(metaclass=Singleton):
                     # the attacker lost back then, so now remove it from the dead pieces
                     state.dead_pieces[Team(piece_from.team)][piece_from.token] -= 1
 
-        state.status = Status.ongoing
-        state.status_checked = False
+        state.unset_status()
 
     @classmethod
     def get_status(cls, state: State, force=False, **kwargs):
@@ -129,15 +128,16 @@ class Logic(metaclass=Singleton):
                 if token not in [Token.flag, Token.bomb]
                 # all move-able enemy pieces have been captured -> opponent won
             ):
-                state.status = Status.win(player.opponent())
+                state.set_status(Status.win(player.opponent()))
 
         if state.turn_counter >= MAX_NR_TURNS or any(
             all(move is None for move in cls.possible_moves_iter(state.board, team))
             for team in (Team.blue, Team.red)
         ):
-            state.status = Status.draw
+            state.set_status(Status.tie)
 
-        state.status_checked = True
+        # if no win or draw condition fits, then the match is ongoing
+        state.set_status(Status.ongoing)
 
     @classmethod
     def is_legal_move(cls, board: Board, move_to_check: Move):

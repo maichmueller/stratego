@@ -1,7 +1,7 @@
 # Stratego AI environment
 
-This package allows to build and train reinfrocement learning agents on the board game Stratego.
-![example](./docs/images/example_print_small.png)
+This package allows to build and train reinforcement learning agents on the board game Stratego.
+![example](./docs/images/game_example.png)
 There are all 3 size versions of the game implemented: 
 - Small (5x5)
 - Medium (7x7)
