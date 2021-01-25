@@ -25,7 +25,7 @@ class Board(np.ndarray):
         figure: Optional[plt.Figure] = None,
         ax: Optional[plt.Axes] = None,
         omniscient: bool = True,
-        boardlength_in_inch: float = 6,
+        figsize_sq: float = 6,
         **kwargs,
     ):
         """
@@ -38,25 +38,28 @@ class Board(np.ndarray):
             the figure of the plot. Is instantiated if not provided.
         ax: plt.Axes object (optional),
             the axis in which to plot the board. Is instantiated if not provided.
+        figsize_sq: float (optional),
+            the length of the figsize. The figure is squared (figsize_sq, figsize_sq)
         kwargs: Dict,
-            optional keyword arguments for plt.Figure
+            optional keyword arguments for plt.Figure. "figsize" parameter is excluded.
         """
         game_size = self.shape[0]
-
+        kwargs.pop("figsize", None)  # remove figsize if provided.
         if figure is None:
             figure = plt.figure(
                 num=kwargs.pop("num", 42000),
-                figsize=kwargs.pop("figsize", (boardlength_in_inch, boardlength_in_inch)),
+                figsize=kwargs.pop("figsize", (figsize_sq, figsize_sq)),
                 **kwargs,
             )
         else:
             figure.clf()
         if ax is None:
             ax = figure.subplots(1, 1)
+        inch_scale = figsize_sq / 4
         game_scale = 5 / game_size
-        font_scale_ratio = 6 / game_size
-        piece_markersize = 35 * game_scale
-        obs_markersize = 43 * game_scale
+        font_scale_ratio = 6 / game_size * inch_scale
+        piece_markersize = 35 * game_scale * inch_scale
+        obs_markersize = 43 * game_scale * inch_scale
 
         # layout = np.add.outer(range(game_size), range(game_size)) % 2  # chess-pattern board
         layout = np.zeros((game_size, game_size))
@@ -134,7 +137,8 @@ class Board(np.ndarray):
                     ax.plot(
                         pos[1], pos[0], "s", color="k", markersize=obs_markersize, alpha=1
                     )  # plot marker
-
+        ax.tick_params(axis='both', which='major', labelsize=15  * font_scale_ratio)
+        ax.tick_params(axis='both', which='minor', labelsize=15  * font_scale_ratio)
         ax.set_xticks(range(game_size))
         ax.set_yticks(range(game_size))
 

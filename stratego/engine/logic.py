@@ -129,12 +129,14 @@ class Logic(metaclass=Singleton):
                 # all move-able enemy pieces have been captured -> opponent won
             ):
                 state.set_status(Status.win(player.opponent()))
+                return
 
         if state.turn_counter >= MAX_NR_TURNS or any(
             all(move is None for move in cls.possible_moves_iter(state.board, team))
             for team in (Team.blue, Team.red)
         ):
             state.set_status(Status.tie)
+            return
 
         # if no win or draw condition fits, then the match is ongoing
         state.set_status(Status.ongoing)
