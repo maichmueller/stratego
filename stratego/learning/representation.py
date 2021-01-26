@@ -1,6 +1,5 @@
 from stratego.engine import (
     Team,
-    GameSpecification,
     Piece,
     Obstacle,
     ShadowPiece,
@@ -10,7 +9,7 @@ from stratego.engine import (
 
 import torch
 import numpy as np
-from typing import Callable, List, Optional, Dict
+from typing import Callable, List, Dict
 
 
 def _build_default_filters(own_team: Team):

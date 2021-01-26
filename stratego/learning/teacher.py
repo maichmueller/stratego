@@ -51,7 +51,6 @@ class Teacher:
         ), f"Student agent to coach has to be of type '{RLAgent}'. Given type '{type(self.student).__name__}'"
         self.student: RLAgent = student
         self.student_mirror: RLAgent = deepcopy(student)  # a copy of the student to fight against
-        self.logic = logic
         self.action_map = action_map
         self.game = Game(self.student, self.student_mirror, logic=logic, **kwargs)
 
@@ -171,8 +170,8 @@ class AZTeacher(Teacher):
 
             replays.push(deepcopy(state), policy, None, self.student.team)
 
-            self.logic.execute_move(state, move=move)
-            status = self.logic.check_terminal(state, self.game.specs)
+            self.game.logic.execute_move(state, move=move)
+            status = self.game.logic.check_terminal(state, self.game.specs)
 
             if status != Status.ongoing:
                 for entry in replays:
@@ -252,7 +251,7 @@ class AZTeacher(Teacher):
                                     mcts=MCTS(
                                         model,
                                         action_map=action_map,
-                                        logic=self.logic,
+                                        logic=self.game.logic,
                                         n_mcts_sims=self.n_mcts_sim,
                                         **mcts_kwargs,
                                     ),
@@ -277,7 +276,7 @@ class AZTeacher(Teacher):
                         mcts = MCTS(
                             model,
                             action_map=action_map,
-                            logic=self.logic,
+                            logic=self.game.logic,
                             n_mcts_sims=self.n_mcts_sim,
                             **mcts_kwargs,
                         )
