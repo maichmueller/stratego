@@ -73,6 +73,18 @@ class Teacher:
         with open(filename, "wb+") as f:
             Pickler(f).dump(data)
 
+    def _new_state_threadsafe(self, lock: Optional[Lock] = None):
+        """
+        Resets the game and returns a deepcopy of the new state in a thread-safe manner.
+        """
+        if lock is not None:
+            lock.lock()
+        self.game.reset()
+        state = deepcopy(self.game.state)
+        if lock is not None:
+            lock.unlock()
+        return state
+
 
 class AZTeacher(Teacher):
     def __init__(
@@ -143,7 +155,7 @@ class AZTeacher(Teacher):
         ep_step = 0
         replays = ReplayContainer(memory_capacity, AlphaZeroMemory)
 
-        state = self._new_state_safe(lock)
+        state = self._new_state_threadsafe(lock)
 
         while True:
             ep_step += 1
@@ -175,20 +187,13 @@ class AZTeacher(Teacher):
                     entry.value = status.value * perspective
                 return replays
 
-    def _new_state_safe(self, lock: Optional[Lock] = None):
-        if lock is not None:
-            lock.lock()
-        self.game.reset()
-        state = deepcopy(self.game.state)
-        if lock is not None:
-            lock.unlock()
-        return state
-
     def teach(
         self,
         memory_capacity: int = 100000,
         load_checkpoint_data: bool = False,
         load_checkpoint_model: bool = False,
+        batch_size: int = 4096,
+        n_epochs: int = 100,
         multiprocess: bool = False,
         device: str = "cpu",
         **kwargs,
@@ -200,7 +205,7 @@ class AZTeacher(Teacher):
         It then pits the new neural network against the old one and accepts it
         only if it wins with a rate greater than the threshold.
         """
-        network = self.student.network
+        model = self.student.model
         checkpoint_found = False
         skip_initial_selfplay = load_checkpoint_data and not load_checkpoint_model
 
@@ -218,7 +223,7 @@ class AZTeacher(Teacher):
         if load_checkpoint_model and checkpoint_found:
             self.load_train_data(checkpoint)
             if os.path.isfile(self.model_folder + f"best.pth.tar"):
-                network.load_checkpoint(self.model_folder, f"best.pth.tar")
+                model.load_checkpoint(self.model_folder, f"best.pth.tar")
 
         selfplay_data = ReplayContainer(memory_capacity, AlphaZeroMemory)
         selfplay_data_tensors = ReplayContainer(memory_capacity, AlphaZeroMemory)
@@ -231,7 +236,7 @@ class AZTeacher(Teacher):
             print("\n------ITER " + str(i) + "------", flush=True)
 
             if not skip_initial_selfplay or i > 1:
-                network.network.share_memory()
+                model.network.share_memory()
 
                 if multiprocess:
                     pbar = tqdm(total=self.n_episodes)
@@ -245,7 +250,7 @@ class AZTeacher(Teacher):
                                 executor.submit(
                                     self.selfplay_episode,
                                     mcts=MCTS(
-                                        network,
+                                        model,
                                         action_map=action_map,
                                         logic=self.logic,
                                         n_mcts_sims=self.n_mcts_sim,
@@ -270,7 +275,7 @@ class AZTeacher(Teacher):
                         # bookkeeping + plot progress through tqdm
                         # reset search tree
                         mcts = MCTS(
-                            network,
+                            model,
                             action_map=action_map,
                             logic=self.logic,
                             n_mcts_sims=self.n_mcts_sim,
@@ -286,12 +291,12 @@ class AZTeacher(Teacher):
                 self.save_train_data(i - 1, filename=kwargs.pop("data_filename", f"iteration_{i}"))
 
             # training new network, keeping a copy of the old one
-            network.save_checkpoint(folder=self.model_folder, filename="temp.pth.tar")
-            self.student_mirror.network.load_checkpoint(
+            model.save_checkpoint(folder=self.model_folder, filename="temp.pth.tar")
+            self.student_mirror.model.load_checkpoint(
                 folder=self.model_folder, filename="temp.pth.tar"
             )
 
-            self.train(selfplay_data, 100, batch_size=4096)
+            self.train(selfplay_data, n_epochs, batch_size=batch_size, device=device)
 
             print("\nPITTING AGAINST PREVIOUS VERSION")
 
@@ -308,38 +313,38 @@ class AZTeacher(Teacher):
                 and float(ag_0_wins) / (ag_0_wins + ag_1_wins) < self.acceptance_rate
             ):
                 print("REJECTING NEW MODEL\n")
-                network.load_checkpoint(
+                model.load_checkpoint(
                     folder=self.model_folder, filename="temp.pth.tar"
                 )
             else:
                 print("ACCEPTING NEW MODEL\n")
-                network.save_checkpoint(
+                model.save_checkpoint(
                     folder=self.model_folder, filename=f"checkpoint_{i}.pth.tar"
                 )
 
-    def train(self, replays: ReplayContainer, epochs, batch_size=128):
+    def train(self, replays: ReplayContainer, epochs: int, batch_size: int, device: str):
         """
         examples: list of examples, each example is of form (board, pi, v)
         """
-        network = self.student.network
-        optimizer = optim.Adam(network.parameters())
+        model = self.student.model
+        optimizer = optim.Adam(model.parameters())
         for _ in tqdm(range(epochs), desc="Training epoch"):
-            network.train()
+            model.train()
             pi_losses = RollingMeter()
             v_losses = RollingMeter()
 
-            data_loader = DataLoader(TensorDataset(replays), batch_size=batch_size)
+            data_loader = DataLoader(TensorDataset(replays.memory), batch_size=batch_size)
             batch_bar = tqdm(data_loader)
             for batch_idx, batch in enumerate(data_loader):
                 boards, pis, vs, _ = batch
 
-                boards = torch.cat(boards).to(device=self.device)
-                target_pis = torch.Tensor(np.array(pis), device=self.device)
-                target_vs = torch.Tensor(
-                    np.array(vs).astype(np.float64), device=self.device
+                boards = torch.cat(boards).to(device)
+                target_pis = torch.tensor(np.array(pis), device=device)
+                target_vs = torch.tensor(
+                    np.array(vs).astype(np.float64), device=device
                 )
                 # compute output
-                out_pi, out_v = network(boards)
+                out_pi, out_v = model(boards)
                 l_pi = self.loss_pi(target_pis, out_pi)
                 l_v = self.loss_v(target_vs, out_v)
                 total_loss = l_pi + l_v
@@ -370,16 +375,136 @@ class AZTeacher(Teacher):
         return torch.sum((targets - outputs.view(-1)) ** 2) / targets.size()[0]
 
 
-if __name__ == "__main__":
-    c = AZTeacher(
-        agent.AlphaZero(0),
-        num_selfplay_episodes=1000,
-        mcts_simulations=100,
-        game_size="small",
-    )
-    c.teach(
-        load_checkpoint_data=True,
-        load_checkpoint_model=True,
-        skip_first_self_play=False,
-        multiprocess=False,
-    )
+class DQNTeacher(Teacher):
+
+    def train(self, n_epochs: int):
+        """
+        Trains a reinforcement agent, acting according to the agents model
+        or randomly (with exponentially decaying probability p_random)
+        Each transition (state, action, next_state, reward) is stored in a memory.
+        Each step in the environment is followed by a learning phase:
+            a batch of memories is used to optimize the network model
+        :param env_: training environement
+        :param n_episodes: number of training episodes
+        :return:
+        """
+        episode_scores = []  # score = total reward
+        episode_won = [0]  # win-ratio win = 1 loss = -1
+        averages = []
+        best_winratio = 0.5
+        for i_episode in range(n_epochs):
+            state = self._new_state_threadsafe()
+            state_tensor = self.student.state_to_tensor(state)
+            while True:
+                # act in environment
+                p_random = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * i_episode / EPS_DECAY)
+                action = env_.agents[0].select_action(state, p_random)  # random action with p_random
+                if action is not None:
+                    move = env_.agents[0].action_to_move(action[0, 0])
+                else:
+                    move = None
+                # environment step for action
+                reward_value, done, won = env_.step(move)
+
+                # env.show()
+                # if VERBOSE > 2:
+                #         print(action[0, 0], reward_value)
+                reward = torch.FloatTensor([reward_value]).to(device)
+
+                # save transition as memory and optimize model
+                if done:  # if terminal state
+                    next_state = None
+                    won = 1 if won > 0 else 0
+                else:
+                    next_state = env_.agents[0].state_to_tensor()
+
+                if move is not None:
+                    memory.push(state, action, next_state, reward)  # store the transition in memory
+                state = next_state  # move to the next state
+                optimize_model(agent0.model)  # one step of optimization of target network
+
+                if done:
+                    # after each episode print stats
+                    if VERBOSE > 0:
+                        print("Episode {}/{}".format(i_episode, n_episodes))
+                        print("Score (last 100): {}%".format(
+                            100 * round(sum(episode_won[-100:]) / len(episode_won[-100:]), ndigits=3)))
+                        print("Won: {}".format(won))
+                        print("Noise: {}".format(p_random))
+                        # print("Illegal: {}/{}\n".format(env_.illegal_moves, env_.steps))
+                    episode_scores.append(env_.score)
+                    episode_won.append(won)
+                    if VERBOSE > 1:
+                        if i_episode % PLOT_FREQUENCY == 0:
+                            print("Episode {}/{}".format(i_episode, n_episodes))
+                            # utils.plot_scores(episode_scores, N_SMOOTH)  # takes run time
+                            averages = utils.plot_stats(averages, episode_won, N_SMOOTH, PLOT_FREQUENCY)
+                            torch.save(model.state_dict(), './saved_models/{}_current.pkl'.format(env_name))
+                            if averages:
+                                if averages[-1] > best_winratio:
+                                    best_winratio = averages[-1]
+                                    print("Best win ratio: {}".format(np.round(best_winratio, 2)))
+                                    torch.save(model.state_dict(), './saved_models/{}_best.pkl'.format(env_name))
+                            # pickle.dump(averages, open("{}-averages.p".format(env_name), "wb"))
+                            # pickle.dump(episode_won, open("{}-episode_won.p".format(env_name), "wb"))
+
+                    break
+            if i_episode % 500 == 2:
+                if VERBOSE > 2:
+                    run_env(env_, 1)
+
+    def train(self, replays: ReplayContainer,  epochs: int, batch_size: int, device: str):
+        """
+        Sample batch from memory of environment transitions and train network to fit the
+        temporal difference TD(0) Q-value approximation
+        """
+        if len(replays) < batch_size:
+            return  # not optimizing for not enough memory
+
+        model = self.student.model
+        model.train()
+
+        data_loader = DataLoader(TensorDataset(replays.memory), batch_size=batch_size)  # sample memories batch
+        batch = utils.Transition(*zip(*transitions))  # transpose the batch
+
+        # Compute a mask of non-final states and concatenate the batch elements
+        non_final_mask = []
+        non_final_idx = []
+        non_final_next_states = []
+
+        for idx, state in enumerate(batch.next_state):
+            if state is not None:
+                non_final_mask.append(True)
+                non_final_idx.append(idx)
+                non_final_next_states.append(state)
+            else:
+                non_final_mask.append(False)
+        non_final_mask = torch.ByteTensor(non_final_mask)
+        # non_final_idx = np.array(non_final_idx)
+        non_final_next_states = torch.cat(non_final_next_states)
+
+        state_batch = torch.cat(batch.state)
+        action_batch = torch.cat(batch.action)
+
+        reward_batch = torch.cat(batch.total_reward)
+
+        # Compute Q(s_t, a) - the model computes Q(s_t), then we select the columns of actions taken
+        state_action_values = model(state_batch).gather(1, action_batch)
+
+        # Compute V(s_{t+1}) for all next states.
+        next_state_values = torch.zeros(BATCH_SIZE).float().to(device)  # zero for terminal states
+        next_state_values[non_final_mask.cpu()] = model(non_final_next_states).max(1)[
+            0]  # what would the model predict
+        with torch.no_grad():
+            expected_state_action_values = (
+                                                       next_state_values * GAMMA) + reward_batch  # compute the expected Q values
+
+        loss = F.smooth_l1_loss(state_action_values.view(-1),
+                                expected_state_action_values.view(-1))  # compute Huber loss
+
+        # optimize network
+        optimizer.zero_grad()  # optimize towards expected q-values
+        loss.backward()
+        for param in model.parameters():
+            param.grad.data.clamp_(-1, 1)
+        optimizer.step()

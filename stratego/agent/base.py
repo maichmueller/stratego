@@ -1,4 +1,4 @@
-from typing import Dict, List, Callable, Optional, Union
+from typing import Dict, List, Callable, Optional, Union, Iterable
 
 import numpy as np
 import copy
@@ -22,9 +22,10 @@ from stratego.engine import (
     Move,
     Position,
     Piece,
+    ActionMap,
+    Action,
 )
-from stratego.engine.action import ActionMap, Action
-from stratego.learning import RewardToken
+from stratego.learning import RewardToken, Representation, DefaultRepresentation
 
 
 class Agent(ABC):
@@ -32,9 +33,7 @@ class Agent(ABC):
     A general abstract agent base class.
     """
 
-    def __init__(
-        self, team: Union[int, Team]
-    ):
+    def __init__(self, team: Union[int, Team]):
         self.team = Team(team)
         self.hooks: Dict[HookPoint, List[Callable]] = defaultdict(list)
 
@@ -74,13 +73,17 @@ class RLAgent(Agent, ABC):
         self,
         team: Union[int, Team],
         action_map: ActionMap,
-        network: torch.nn.Module,
+        model: torch.nn.Module,
+        representation: Representation,
         reward_map: Dict[RewardToken, float],
+        device="cpu",
     ):
         super().__init__(team=team)
         self.action_map = action_map
         self.action_dim = len(action_map.actions)
-        self.network = network
+        self.model = model
+        self.representation = representation
+        self.device = device
         self.total_reward = 0
 
         # RL attributes
@@ -89,23 +92,27 @@ class RLAgent(Agent, ABC):
 
         self.reward_map: Dict[RewardToken, float] = reward_map
 
-    def choose_action(self, state) -> Action:
+    def select_action(self, policy: Union[torch.Tensor, np.ndarray, Iterable[float]]) -> Action:
         """
         Choose the action to take with which to form the next move.
+        This is usually just the argmax of policies, but may be overwritten.
 
         Parameters
         ----------
-        state: State,
-            the current state of the game.
+        policy: torch.Tensor, np.ndarray or Iterable[float],
+            the policy from which to select the appropriate action.
 
         Returns
         -------
         Action,
             the chosen action.
         """
-        raise NotImplementedError
+        action = self.action_map[int(torch.argmax(torch.tensor(policy)))]
+        return action
 
-    def state_to_tensor(self, state: State, perspective: Optional[Team] = None) -> torch.Tensor:
+    def state_to_tensor(
+        self, state: State, perspective: Optional[Team] = None
+    ) -> torch.Tensor:
         """
         Converts the state to a torch tensor according to the chosen representation.
 
@@ -122,7 +129,7 @@ class RLAgent(Agent, ABC):
         torch.Tensor,
             the state representation as tensor.
         """
-        return self.representer.state_to_tensor(state)
+        return self.representation.state_to_tensor(state)
 
     def add_reward(self, reward_token: RewardToken):
         self.total_reward += self.reward_map[reward_token]

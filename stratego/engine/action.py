@@ -89,6 +89,9 @@ class ActionMap:
     def _(self, arg: Piece):
         return self.actors_to_actions[arg.token, arg.version]
 
+    def invert_action(self, action: Action):
+        return self.actions_inverse[action]
+
     def _build_action_map(
         self, available_types: Dict[Token, int], logic: Logic = Logic()
     ):

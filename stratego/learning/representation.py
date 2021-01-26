@@ -1,11 +1,19 @@
-from stratego.engine import Team, GameSpecification, Piece, Obstacle, ShadowPiece, State
+from stratego.engine import (
+    Team,
+    GameSpecification,
+    Piece,
+    Obstacle,
+    ShadowPiece,
+    State,
+    Token,
+)
 
 import torch
 import numpy as np
 from typing import Callable, List, Optional, Dict
 
 
-def _build_default_filters(own_team: Team, specs: GameSpecification):
+def _build_default_filters(own_team: Team):
     """
     The default state representation is meant to fill boards with 0s and 1s depending on filters.
     This is meant to achieve layers of the following kind:
@@ -43,16 +51,14 @@ def _build_default_filters(own_team: Team, specs: GameSpecification):
     # obstacle
     filters += lambda piece: isinstance(piece, Obstacle)
 
-    # own pieces with versions
-    for token, count in specs.token_count.items():
-        for version in range(count):
-            filters += (
-                lambda piece: isinstance(piece, Piece)
-                and piece.team == own_team
-                and not piece.hidden
-                and piece.token == token
-                and piece.version == version
-            )
+    # own pieces with versions as indicator
+    for token in Token:
+        filters += (
+            lambda piece: (piece.version + 1) * isinstance(piece, Piece)
+            and piece.team == own_team
+            and not piece.hidden
+            and piece.token == token
+        )
 
     # all own hidden pieces
     filters += (
@@ -63,7 +69,7 @@ def _build_default_filters(own_team: Team, specs: GameSpecification):
 
     opponent = own_team.opponent()
     # opponent pieces
-    for token, count in specs.token_count.items():
+    for token in Token:
         # opponent units need to version specific filter
         # (since no actions correlate to a specific token version)
         filters += (
@@ -74,9 +80,9 @@ def _build_default_filters(own_team: Team, specs: GameSpecification):
         )
 
     # all opponent hidden pieces
-    filters += lambda piece: piece.team == opponent and (
-        isinstance(piece, ShadowPiece) or piece.hidden
-    )
+    filters += lambda piece: (
+        not isinstance(piece, Obstacle) and piece.team == opponent
+    ) and (isinstance(piece, ShadowPiece) or piece.hidden)
 
     return filters
 
@@ -114,11 +120,12 @@ class DefaultRepresentation(Representation):
     """
     The standard representation class to use the default filters for creating the state tensors.
     """
-    def __init__(self, specs: GameSpecification):
+
+    def __init__(self):
         super().__init__(
             filters={
-                Team.blue: _build_default_filters(Team.blue, specs),
-                Team.red: _build_default_filters(Team.red, specs),
+                Team.blue: _build_default_filters(Team.blue),
+                Team.red: _build_default_filters(Team.red),
             },
         )
 

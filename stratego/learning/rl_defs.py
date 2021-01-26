@@ -34,7 +34,7 @@ class ReplayContainer:
         self.capacity = capacity
         self.memory = []
         self.position = 0
-        self.memory = memory_class
+        self.memory_type = memory_class
 
     def __len__(self):
         return len(self.memory)
@@ -47,7 +47,7 @@ class ReplayContainer:
         if len(self.memory) < self.capacity:
             # only expand the memory if there is free capacity left
             self.memory.append(None)
-        self.memory[self.position] = self.memory(*args)
+        self.memory[self.position] = self.memory_type(*args)
         self.position = (self.position + 1) % self.capacity
 
     def sample(self, batch_size, rng_state: Optional[np.random.Generator] = None):
