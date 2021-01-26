@@ -74,13 +74,13 @@ class RLAgent(Agent, ABC):
         self,
         team: Union[int, Team],
         action_map: ActionMap,
-        model: torch.nn.Module,
+        network: torch.nn.Module,
         reward_map: Dict[RewardToken, float],
     ):
         super().__init__(team=team)
         self.action_map = action_map
         self.action_dim = len(action_map.actions)
-        self.model = model
+        self.network = network
         self.total_reward = 0
 
         # RL attributes
@@ -122,7 +122,7 @@ class RLAgent(Agent, ABC):
         torch.Tensor,
             the state representation as tensor.
         """
-        raise NotImplementedError
+        return self.representer.state_to_tensor(state)
 
     def add_reward(self, reward_token: RewardToken):
         self.total_reward += self.reward_map[reward_token]

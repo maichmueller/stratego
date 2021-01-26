@@ -1,5 +1,7 @@
+from typing import Optional, Union
+
 from stratego.learning import ReplayContainer, AlphaZeroMemory
-from .mcts import MCTS
+from stratego.algorithms.mcts import MCTS
 
 from stratego import Game
 import stratego.arena as arena
@@ -14,20 +16,21 @@ from torch import optim
 import numpy as np
 
 from pickle import Pickler, Unpickler
-from collections import namedtuple
 import os
 from tqdm.auto import tqdm
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from multiprocessing import cpu_count
+from multiprocessing import cpu_count, Lock
+
+from stratego.utils import slice_kwargs, RollingMeter
 
 
-class Coach:
+class Teacher:
     def __init__(
         self,
-        game_env: Game,
-        team_to_train: Team,
+        student: RLAgent,
         action_map: ActionMap,
+        logic: Logic = Logic(),
         num_iterations: int = 100,
         model_folder: str = "./checkpoints/models",
         train_data_folder: str = "./checkpoints/data",
@@ -43,17 +46,18 @@ class Coach:
 
         self.n_iters = num_iterations
 
-        self.game = game_env
-        student = game_env.agents[team_to_train]
         assert isinstance(
             student, RLAgent
         ), f"Student agent to coach has to be of type '{RLAgent}'. Given type '{type(self.student).__name__}'"
         self.student: RLAgent = student
+        self.student_mirror: RLAgent = deepcopy(student)  # a copy of the student to fight against
+        self.logic = logic
         self.action_map = action_map
+        self.game = Game(self.student, self.student_mirror, logic=logic, **kwargs)
 
     def teach(self, *args, **kwargs):
         """
-        Teach the reinforcement learning agent according to the strategy defined in the sub-coach.
+        Teach the reinforcement learning agent according to the strategy defined in the Teacher child.
         """
         raise NotImplementedError
 
@@ -70,12 +74,12 @@ class Coach:
             Pickler(f).dump(data)
 
 
-class AZCoach(Coach):
+class AZTeacher(Teacher):
     def __init__(
         self,
-        game_env: Game,
-        team_to_train: Team,
+        student: RLAgent,
         action_map: ActionMap,
+        logic: Logic = Logic(),
         num_iterations: int = 100,
         num_selfplay_episodes: int = 100,
         acceptance_rate: float = 0.55,
@@ -83,12 +87,13 @@ class AZCoach(Coach):
         temperature: int = 100,
         model_folder: str = "./checkpoints/models",
         train_data_folder: str = "./checkpoints/data",
+        seed: Optional[Union[int, np.random.Generator]] = None,
         **kwargs,
     ):
         super().__init__(
-            game_env,
-            team_to_train,
+            student,
             action_map,
+            logic,
             num_iterations,
             model_folder,
             train_data_folder,
@@ -105,12 +110,12 @@ class AZCoach(Coach):
         self.temp_thresh = temperature
 
         self.skip_first_self_play = False
+        self.rng = np.random.default_rng(seed)
 
     def selfplay_episode(
-        self, mcts, state=None, replay_capacity: int = int(1e5), logic: Logic = Logic()
+        self, mcts, memory_capacity: int = int(1e5), lock: Optional[Lock] = None
     ):
         """
-
         This function executes one episode of self-play, starting with player 1.
         As the game is played, each turn is added as a training example to a list.
         The game is played until the game ends. After the game ends, the outcome
@@ -123,12 +128,10 @@ class AZCoach(Coach):
         ----------
         mcts: MCTS,
             the Monte-Carlo Tree Search object.
-        state: State,
-            the state on which we are going to search.
-        replay_capacity: int,
+        memory_capacity: int,
             the capacity of the replay
-        logic: Logic,
-            the logic element handling state manipulations according to the chosen ruleset.
+        lock: Lock,
+            the lock to use when multiprocessing is in play.
 
         Returns
         -------
@@ -137,20 +140,17 @@ class AZCoach(Coach):
             policy vector, v is +1 if the player eventually won the game, else -1.
         """
 
-        self.game.reset()
-
-        if state is None:
-            state = deepcopy(self.game.state)
-
         ep_step = 0
-        replays = ReplayContainer(replay_capacity, AlphaZeroMemory)
+        replays = ReplayContainer(memory_capacity, AlphaZeroMemory)
+
+        state = self._new_state_safe(lock)
 
         while True:
             ep_step += 1
             policy = mcts.policy(
                 state, agent=self.student, temperature=int(ep_step < self.temp_thresh)
             )
-            action = self.action_map[np.random.choice(len(policy), p=policy)]
+            action = self.action_map[self.rng.choice(len(policy), p=policy)]
             if self.student.team == Team.red:
                 # invert the action's effect to get the mirrored action, since the chosen
                 # action is always chosen from the perspective of team Blue.
@@ -159,8 +159,8 @@ class AZCoach(Coach):
 
             replays.push(deepcopy(state), policy, None, self.student.team)
 
-            logic.execute_move(state, move=move)
-            status = logic.check_terminal(state)
+            self.logic.execute_move(state, move=move)
+            status = self.logic.check_terminal(state, self.game.specs)
 
             if status != Status.ongoing:
                 for entry in replays:
@@ -173,7 +173,16 @@ class AZCoach(Coach):
                     else:
                         perspective = 1
                     entry.value = status.value * perspective
-                return
+                return replays
+
+    def _new_state_safe(self, lock: Optional[Lock] = None):
+        if lock is not None:
+            lock.lock()
+        self.game.reset()
+        state = deepcopy(self.game.state)
+        if lock is not None:
+            lock.unlock()
+        return state
 
     def teach(
         self,
@@ -182,15 +191,16 @@ class AZCoach(Coach):
         load_checkpoint_model: bool = False,
         multiprocess: bool = False,
         device: str = "cpu",
+        **kwargs,
     ):
         """
-        Performs num_iters many iterations with num_episodes episodes of self-play in each
-        iteration. After every iteration, it retrains the neural network with
-        examples in selfplay_data (which has a maximium length of maxlenofQueue).
+        Performs `num_iters` many iterations with `n_episodes` episodes of self-play in each
+        iteration. After every iteration, it retrains the neural network with the data in
+        selfplay_data (which has a maximum length of `memory_capacity`).
         It then pits the new neural network against the old one and accepts it
-        only if it wins >= updateThreshold fraction of games.
+        only if it wins with a rate greater than the threshold.
         """
-        network = self.student.model
+        network = self.student.network
         checkpoint_found = False
         skip_initial_selfplay = load_checkpoint_data and not load_checkpoint_model
 
@@ -211,69 +221,82 @@ class AZCoach(Coach):
                 network.load_checkpoint(self.model_folder, f"best.pth.tar")
 
         selfplay_data = ReplayContainer(memory_capacity, AlphaZeroMemory)
+        selfplay_data_tensors = ReplayContainer(memory_capacity, AlphaZeroMemory)
+        action_map = ActionMap(self.game.specs)
+        mcts_kwargs = slice_kwargs(MCTS.__init__, kwargs)
+        arena_kwargs = slice_kwargs(arena.fight, kwargs)
 
         for i in range(self.n_iters):
 
             print("\n------ITER " + str(i) + "------", flush=True)
 
-            if not self.skip_first_self_play or i > 1:
-                network.to_device()
-                network.net.share_memory()
+            if not skip_initial_selfplay or i > 1:
+                network.network.share_memory()
 
                 if multiprocess:
                     pbar = tqdm(total=self.n_episodes)
-                    pbar.set_description("Creating self-play training turns")
-                    with ProcessPoolExecutor(max_workers=cpu_count() // 2) as executor:
+                    pbar.set_description("Selfplay Episode")
+                    lock = Lock()
+                    with ProcessPoolExecutor(
+                        max_workers=kwargs.pop("cpu_count", cpu_count())
+                    ) as executor:
                         futures = list(
                             (
                                 executor.submit(
-                                    self.self_play_episode,
-                                    mcts=MCTS(network, n_mcts_sims=self.n_mcts_sim),
-                                    reset_game=False,
-                                    state=deepcopy(self.game.reset().state),
+                                    self.selfplay_episode,
+                                    mcts=MCTS(
+                                        network,
+                                        action_map=action_map,
+                                        logic=self.logic,
+                                        n_mcts_sims=self.n_mcts_sim,
+                                        **mcts_kwargs,
+                                    ),
+                                    lock=lock,
+                                    memory_capacity=memory_capacity,
                                 )
                                 for i in range(self.n_episodes)
                             )
                         )
                         for future in as_completed(futures):
                             pbar.update(1)
-                            selfplay_data.extend(future.result())
+                            results = future.result()
+                            selfplay_data.extend(*results)
+                            for result in results:
+                                result.state = self.student.state_to_tensor(
+                                    result.state, perspective=self.student.team
+                                )
                 else:
                     for _ in tqdm(range(self.n_episodes)):
                         # bookkeeping + plot progress through tqdm
                         # reset search tree
-                        mcts = MCTS(network, n_mcts_sims=self.n_mcts_sim)
+                        mcts = MCTS(
+                            network,
+                            action_map=action_map,
+                            logic=self.logic,
+                            n_mcts_sims=self.n_mcts_sim,
+                            **mcts_kwargs,
+                        )
                         selfplay_data.extend(
-                            self.self_play_episode(mcts, reset_game=True)
+                            self.selfplay_episode(mcts, memory_capacity=memory_capacity)
                         )
 
             # backup history to a file
             # NB! the examples were collected using the model from the previous iteration, so (i-1)
-            if not self.skip_first_self_play or i > 0:
-                self.save_train_data(i - 1)
-            # convert the bard to a state rep
-            train_exs = []
-            for tr_turn in selfplay_data:
-                train_exs.push(
-                    self.game.agents[0].state_to_tensor(tr_turn.board),
-                    tr_turn.pi,
-                    tr_turn.v,
-                    tr_turn.player,
-                )
-            self.train_examples.extend(train_exs)
+            if not skip_initial_selfplay or i > 0:
+                self.save_train_data(i - 1, filename=kwargs.pop("data_filename", f"iteration_{i}"))
 
             # training new network, keeping a copy of the old one
             network.save_checkpoint(folder=self.model_folder, filename="temp.pth.tar")
-            self.opp_net.load_checkpoint(
+            self.student_mirror.network.load_checkpoint(
                 folder=self.model_folder, filename="temp.pth.tar"
             )
 
-            network.train(self.train_examples, 100, batch_size=4096)
+            self.train(selfplay_data, 100, batch_size=4096)
 
             print("\nPITTING AGAINST PREVIOUS VERSION")
 
             ag_0_wins, ag_1_wins, draws = arena.fight(
-                game_env=self.game, n_fights=self.n_iters, **kwargs
+                game_env=self.game, n_fights=self.n_iters, **arena_kwargs
             )
 
             print(
@@ -294,18 +317,18 @@ class AZCoach(Coach):
                     folder=self.model_folder, filename=f"checkpoint_{i}.pth.tar"
                 )
 
-    def train(self, examples: ReplayContainer, epochs, batch_size=128):
+    def train(self, replays: ReplayContainer, epochs, batch_size=128):
         """
         examples: list of examples, each example is of form (board, pi, v)
         """
-        network = self.student.model
+        network = self.student.network
         optimizer = optim.Adam(network.parameters())
         for _ in tqdm(range(epochs), desc="Training epoch"):
             network.train()
             pi_losses = RollingMeter()
             v_losses = RollingMeter()
 
-            data_loader = DataLoader(TensorDataset(examples), batch_size=batch_size)
+            data_loader = DataLoader(TensorDataset(replays), batch_size=batch_size)
             batch_bar = tqdm(data_loader)
             for batch_idx, batch in enumerate(data_loader):
                 boards, pis, vs, _ = batch
@@ -348,7 +371,7 @@ class AZCoach(Coach):
 
 
 if __name__ == "__main__":
-    c = AZCoach(
+    c = AZTeacher(
         agent.AlphaZero(0),
         num_selfplay_episodes=1000,
         mcts_simulations=100,

@@ -1,36 +1,25 @@
 from abc import ABC
-from typing import Optional
-
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import optim
 import os
-from tqdm import tqdm
-
-from stratego.engine import ActionMap, GameSpecification
 
 
 class NetworkWrapper(torch.nn.Module, ABC):
     def __init__(
         self,
-        action_map: Optional[ActionMap] = None,
-        game_size: Optional[int] = None,
+        network: torch.nn.Module,
         device="cpu",
     ):
         super().__init__()
-        self.game_size = game_size
-        self.action_map = (
-            action_map
-            if action_map is not None
-            else ActionMap(GameSpecification(game_size))
-        )
+        self.network = network
         self.device = device
+        network.to(device)
 
     def to(self, device: str = "cpu"):
         self.device = device
-        self.net.to(device)
+        self.network.to(device)
 
     @torch.no_grad()
     def predict(self, board):
@@ -38,7 +27,7 @@ class NetworkWrapper(torch.nn.Module, ABC):
         board: np array with board
         """
         self.eval()
-        pi, v = self.net(board)
+        pi, v = self.network(board)
 
         return torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0]
 
@@ -68,7 +57,7 @@ class NetworkWrapper(torch.nn.Module, ABC):
         self.load_state_dict(checkpoint["state_dict"])
 
 
-class NNConvolutional(nn.Module):
+class Conv(nn.Module):
     """
     Convenience class to create convolutional layers with optional max pooling and dropout in between
     """
@@ -133,13 +122,12 @@ class NNConvolutional(nn.Module):
                 )
 
     def forward(self, x):
-        x = x.to(GLOBAL_DEVICE.device)
         for layer in self.conv_layers:
             x = layer(x)
         return x
 
 
-class NNLinear(nn.Module):
+class FC(nn.Module):
     """
     Convenience class to create a chain of linear layers
     """
@@ -154,12 +142,14 @@ class NNLinear(nn.Module):
         device: str = "cpu",
     ):
         super().__init__()
-        self.dim_in = dim_in
-        self.dim_out = dim_out
+        self.dim_input = dim_in
+        self.dim_output = dim_out
         self.start_layer_exponent = start_layer_exponent
         self.hidden_nodes = 2 ** start_layer_exponent
         self.nr_lin_layers = nr_lin_layers
-        self.linear_layers = nn.ModuleList([nn.Linear(self.dim_in, self.hidden_nodes)])
+        self.linear_layers = nn.ModuleList(
+            [nn.Linear(self.dim_input, self.hidden_nodes)]
+        )
         for i in range(self.nr_lin_layers - 2):
             denom1 = 2 ** i
             denom2 = 2 ** (i + 1)
@@ -168,7 +158,11 @@ class NNLinear(nn.Module):
             )
 
         self.linear_layers.extend(
-            [nn.Linear(self.hidden_nodes / (2 ** (self.nr_lin_layers - 2)), self.dim_out)]
+            [
+                nn.Linear(
+                    self.hidden_nodes / (2 ** (self.nr_lin_layers - 2)), self.dim_output
+                )
+            ]
         )
         self.activation = activation_function
         self.to(device)
@@ -180,44 +174,27 @@ class NNLinear(nn.Module):
         return x
 
 
-class ELaborateConvFC(nn.Module):
+class PolicyValueNet(nn.Module):
     def __init__(
         self,
-        game_size,
-        channels_in,
-        filter_amounts,
-        d_in,
-        d_out,
-        nr_lin_layers,
-        kernel_sizes=None,
-        maxpool_layer_pos=None,
-        dropout_prob_per_layer=None,
-        start_layer_exponent=8,
-        activation_function=nn.ReLU(),
+        policy_dim: int,
+        conv_net: torch.nn.Module,
+        fc_net: torch.nn.Module,
     ):
         super().__init__()
-        self.conv_net = NNConvolutional(
-            channels_in,
-            filter_amounts,
-            kernel_sizes,
-            maxpool_layer_pos,
-            dropout_prob_per_layer,
-        )
-        self.d_in = d_in
-        self.fc_net = NNLinear(
-            d_in, d_out, nr_lin_layers, start_layer_exponent, activation_function
-        )
-
-        out_features = self.fc_net.linear_layers[-1].in_features
-        self.fc_net.linear_layers = self.fc_net.linear_layers[:-1]
-        self.action_value_layer = nn.Linear(
-            in_features=out_features, out_features=self.fc_net.dim_out
-        )
-        self.board_value_layer = nn.Linear(in_features=out_features, out_features=1)
-        self.game_size = game_size
+        self.conv_net = conv_net
+        self.fc_net = fc_net
+        assert hasattr(
+            fc_net, "dim_output"
+        ), "FullyConnected network must have member 'dim_output'."
+        assert hasattr(
+            fc_net, "dim_input"
+        ), "FullyConnected network must have member 'dim_input'."
+        dim_out_fc = self.fc_net.dim_output
+        self.policy_layer = nn.Linear(in_features=dim_out_fc, out_features=policy_dim)
+        self.value_layer = nn.Linear(in_features=dim_out_fc, out_features=1)
 
     def extract_features(self, x):
-        x = x.to(GLOBAL_DEVICE.device)
         params = self.named_parameters()
         output_per_layer = []
         for layer in self.conv_net.conv_layers:
@@ -229,12 +206,11 @@ class ELaborateConvFC(nn.Module):
         return params, output_per_layer
 
     def forward(self, x):
-        x.to(GLOBAL_DEVICE.device)
         x = self.conv_net(x)
-        x = x.view(-1, self.d_in)
+        x = x.view(-1, self.fc_net.dim_input)
         x = self.fc_net(x)
 
-        pi = self.action_value_layer(x)  # batch_size x action_size
-        v = self.board_value_layer(x)  # batch_size x 1
+        pi = self.policy_layer(x)  # batch_size x action_size
+        v = self.value_layer(x)  # batch_size x 1
 
         return F.log_softmax(pi, dim=1), torch.tanh(v)

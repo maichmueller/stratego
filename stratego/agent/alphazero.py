@@ -3,7 +3,7 @@ from stratego.agent import RLAgent
 import torch
 import numpy as np
 from stratego.engine import Team, State, Logic
-from stratego.learning import models
+from stratego.learning import networks
 
 
 class AlphaZero(RLAgent):
@@ -31,7 +31,7 @@ class AlphaZero(RLAgent):
         dropout_prob_per_layer = np.array([0.5, 0.5, 0, 0])
         start_layer_exponent = 10
         activation_function = torch.nn.ReLU()
-        nnet = models.ELaborateConvFC(
+        nnet = networks.PolicyValueNet(
             game_size=game_size,
             channels_in=self.state_dim,
             filter_amounts=filter_amounts,
@@ -44,7 +44,7 @@ class AlphaZero(RLAgent):
             start_layer_exponent=start_layer_exponent,
             activation_function=activation_function,
         )
-        self.model = models.NetworkWrapper(
+        self.model = networks.NetworkWrapper(
             game_size=game_size, net=nnet, action_dim=self.action_dim
         )
         # self.model = models.Linear(self.state_dim, self.action_dim)

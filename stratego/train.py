@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 import agent
-from stratego.learning import coach
+from stratego.learning import teacher
 import utils
 import copy
 
@@ -115,9 +115,9 @@ def train(env_, num_episodes):
             state = env_.agents[0].state_to_tensor()  # initialize state
             if (i_episode+1) % 1000 == 0:
                 test_agent0 = agent.Stratego(0)
-                test_agent0.model = copy.deepcopy(agent0.model)
+                test_agent0.network = copy.deepcopy(agent0.network)
                 test_agent1 = agent.RandomAgent(1)
-                test_env = coach.Env(test_agent0, test_agent1)
+                test_env = teacher.Env(test_agent0, test_agent1)
                 run_env(test_env, n_runs=100, show=False)
                 print("\n")
             while True:
@@ -146,7 +146,7 @@ def train(env_, num_episodes):
                 if move is not None:
                     memory.push(state, action, next_state, reward)  # store the transition in memory
                 state = next_state  # move to the next state
-                optimize_model(agent0.model)  # one step of optimization of target network
+                optimize_model(agent0.network)  # one step of optimization of target network
 
                 if done:
                     # after each episode print stats
@@ -200,10 +200,10 @@ agent0 = agent.Stratego(0)
 agent1 = agent.RandomAgent(1)
 # agent1 = agent.Random(1)
 # agent1.model = agent0.model  # if want to train by self-play
-env__ = coach.Trainer(agent0, agent1, False, "custom", [0, 1])
+env__ = teacher.Trainer(agent0, agent1, False, "custom", [0, 1])
 env_name = "stratego"
 
-model = env__.agents[0].model  # optimize model of agent0
+model = env__.agents[0].network  # optimize model of agent0
 model = model.to(device)
 optimizer = optim.Adam(model.parameters())
 memory = utils.ReplayMemory(10000)

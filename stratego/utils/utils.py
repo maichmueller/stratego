@@ -122,7 +122,7 @@ def visualize_features(n_points, environment, env_name):
     """
     boards = []
     states = []
-    model = environment.agents[0].model
+    model = environment.agents[0].network
     interrupt = False
 
     print("Acquiring features")

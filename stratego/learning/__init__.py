@@ -1,2 +1,1 @@
-from .reward import RewardToken
-from .replay import ReplayContainer, DQNMemory, AlphaZeroMemory
+from .rl_defs import RewardToken, ReplayContainer, DQNMemory, AlphaZeroMemory

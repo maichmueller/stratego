@@ -1,9 +1,24 @@
+from __future__ import annotations
+from enum import Enum
+
 from collections import namedtuple
+from functools import singledispatchmethod
 from typing import Optional
 
 import numpy as np
 
-# For DQN: Stores a state-transition (s, a, s', r) quadruple
+
+class RewardToken(Enum):
+    illegal = 0  # punish illegal moves
+    step = 1  # negative reward per agent step
+    win = 2  # win game
+    loss = 3  # lose game
+    kill = 4  # kill enemy piece reward
+    die = 5  # lose to enemy piece
+    kill_mutually = 6  # mutual annihilation of attacking and defending piece
+
+
+# For DQN: Stores a state-transition (s, a, s', r) tuple
 DQNMemory = namedtuple("DQNTransition", "state, action, next_state, reward")
 # For AlphaZero: Stores a state-policy-value tuple (s, pi, v, player) for the player
 AlphaZeroMemory = namedtuple("AZTransition", "state, pi, value, player")
@@ -11,9 +26,8 @@ AlphaZeroMemory = namedtuple("AZTransition", "state, pi, value, player")
 
 class ReplayContainer:
     """
-    Replay Memory for played states. Stores the elements necessary to remember by the algorithm
-    Sores the content-tuple specified on creation.
-
+    Replay Memory for played states.
+    Stores the content-tuple specified on creation.
     """
 
     def __init__(self, capacity, memory_class):
@@ -40,3 +54,8 @@ class ReplayContainer:
         if rng_state is not None:
             rng_state = np.random.default_rng()
         return rng_state.choice(self.memory, batch_size, replace=False)
+
+    def extend(self, replays: ReplayContainer):
+        for replay in replays:
+            self.push(*replay)
+

@@ -341,8 +341,8 @@ class OmniscientHeuristic(OmniscientMiniMax):
 
     def get_network_reward(self):
         state = self.evaluator.state_to_tensor()
-        self.evaluator.model.eval()
-        state_action_values = self.evaluator.model(torch.tensor(state)).data.numpy()
+        self.evaluator.network.eval()
+        state_action_values = self.evaluator.network(torch.tensor(state)).data.numpy()
         return np.max(state_action_values)
 
     def get_terminal_reward(self, done, won, depth):
@@ -372,8 +372,8 @@ class Heuristic(MiniMax):
 
     def get_network_reward(self):
         state = self.evaluator.state_to_tensor()
-        self.evaluator.model.eval()
-        state_action_values = self.evaluator.model(torch.tensor(state)).data.numpy()
+        self.evaluator.network.eval()
+        state_action_values = self.evaluator.network(torch.tensor(state)).data.numpy()
         return np.max(state_action_values)
 
     def get_terminal_reward(self, done, won, depth):
@@ -520,8 +520,8 @@ class MonteCarloHeuristic(MonteCarlo):
 
     def get_network_reward(self):
         state = self.evaluator.state_to_tensor()
-        self.evaluator.model.eval()
-        state_action_values = self.evaluator.model(torch.tensor(state)).data.numpy()
+        self.evaluator.network.eval()
+        state_action_values = self.evaluator.network(torch.tensor(state)).data.numpy()
         return np.max(state_action_values)
 
     def decide_move(self):
