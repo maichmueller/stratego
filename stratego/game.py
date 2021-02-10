@@ -104,13 +104,24 @@ class Game:
             status = self.run_step(**kwargs_run_step)
             if status != Status.ongoing:
                 game_over = True
+
+        if status == Status.win_blue:
+            self.reward_agent(self.agents[Team.blue], RewardToken.win)
+            self.reward_agent(self.agents[Team.red], RewardToken.loss)
+        elif status == Status.win_red:
+            self.reward_agent(self.agents[Team.blue], RewardToken.loss)
+            self.reward_agent(self.agents[Team.red], RewardToken.win)
+        else:
+            # it's a tie. No rewards.
+            pass
+
         print_board()
 
         self._trigger_hooks(HookPoint.post_run, self.state, status)
 
         return status
 
-    def run_step(self, move: Optional[Move] = None):
+    def run_step(self, move: Optional[Move] = None) -> Status:
         """
         Execute one step of the engine (i.e. the action decided by the active player).
 

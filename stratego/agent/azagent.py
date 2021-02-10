@@ -1,8 +1,11 @@
 from stratego.agent import RLAgent
-from stratego.engine import Team, State, ActionMap
+from stratego.engine import Team, State
 
 
-class AlphaZero(RLAgent):
+class AZAgent(RLAgent):
+    """
+    AlphaZero agent. Estimates policy and value with its model.
+    """
     def decide_move(self, state: State, *args, **kwargs):
         if self.team == Team.red:
             state.flip_teams()

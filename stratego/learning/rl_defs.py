@@ -1,9 +1,11 @@
 from __future__ import annotations
+
+from abc import ABC, abstractmethod
 from enum import Enum
 
 from collections import namedtuple
 from functools import singledispatchmethod
-from typing import Optional
+from typing import Optional, Callable
 
 import numpy as np
 
@@ -19,9 +21,9 @@ class RewardToken(Enum):
 
 
 # For DQN: Stores a state-transition (s, a, s', r) tuple
-DQNMemory = namedtuple("DQNTransition", "state, action, next_state, reward")
+DQNMemory = namedtuple("DQNMemory", "state, action, next_state, reward")
 # For AlphaZero: Stores a state-policy-value tuple (s, pi, v, player) for the player
-AlphaZeroMemory = namedtuple("AZTransition", "state, pi, value, player")
+AlphaZeroMemory = namedtuple("AlphaZeroMemory", "state, pi, value, player")
 
 
 class ReplayContainer:
@@ -59,3 +61,42 @@ class ReplayContainer:
         for replay in replays:
             self.push(*replay)
 
+
+class RandomActionScheduler(ABC):
+    @abstractmethod
+    def __call__(self, epoch: int) -> float:
+        raise NotImplementedError
+
+
+class LinearRandomActionScheduler(RandomActionScheduler):
+    def __init__(
+        self,
+        start_epoch: int,
+        end_epoch: int,
+        linear_decline_stop: float = 0.1,
+        exp_decay_rate: float = 0.1,
+    ):
+        self.start = start_epoch
+        self.end = end_epoch
+        self.slope = 1 / (start_epoch - end_epoch)
+        self.intercept = self.end * (-self.slope)
+        self.linear_decline_stop_ratio = linear_decline_stop
+        self.linear_decline_cutoff = (1 / self.slope) * linear_decline_stop + end_epoch
+        self.exp_decay_rate = exp_decay_rate
+
+    def _linear_decline(self, epoch: int):
+        return self.slope * epoch + self.intercept
+
+    def _exp_finish(self, epoch: int):
+        return (
+            np.exp(-(epoch - self.linear_decline_cutoff) * self.exp_decay_rate)
+            * self.linear_decline_stop_ratio
+        )
+
+    def __call__(self, epoch: int) -> float:
+        if epoch < self.start:
+            return 1.0
+        if epoch > self.linear_decline_cutoff:
+            return self._exp_finish(epoch)
+
+        return self._linear_decline(epoch)

@@ -1,12 +1,13 @@
+from abc import abstractmethod, ABC
 from typing import Optional, Union
 
-from stratego.learning import ReplayContainer, AlphaZeroMemory
+from stratego.learning import ReplayContainer, AlphaZeroMemory, DQNMemory, RandomActionScheduler
 from stratego.algorithms.mcts import MCTS
 
 from stratego import Game
 import stratego.arena as arena
 from stratego.engine import Logic, Team, ActionMap, Action, Status
-from stratego.agent import RLAgent
+from stratego.agent import RLAgent, AZAgent, DQNAgent
 
 from copy import deepcopy
 
@@ -22,16 +23,15 @@ from tqdm.auto import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import cpu_count, Lock
 
-from stratego.utils import slice_kwargs, RollingMeter
+import stratego.utils as utils
 
 
-class Teacher:
+class Teacher(ABC):
     def __init__(
         self,
         student: RLAgent,
         action_map: ActionMap,
         logic: Logic = Logic(),
-        num_iterations: int = 100,
         model_folder: str = "./checkpoints/models",
         train_data_folder: str = "./checkpoints/data",
         **kwargs,
@@ -44,16 +44,17 @@ class Teacher:
         if not os.path.exists(train_data_folder):
             os.makedirs(train_data_folder)
 
-        self.n_iters = num_iterations
-
         assert isinstance(
             student, RLAgent
         ), f"Student agent to coach has to be of type '{RLAgent}'. Given type '{type(self.student).__name__}'"
         self.student: RLAgent = student
-        self.student_mirror: RLAgent = deepcopy(student)  # a copy of the student to fight against
+        self.student_mirror: RLAgent = deepcopy(
+            student
+        )  # a copy of the student to fight against
         self.action_map = action_map
         self.game = Game(self.student, self.student_mirror, logic=logic, **kwargs)
 
+    @abstractmethod
     def teach(self, *args, **kwargs):
         """
         Teach the reinforcement learning agent according to the strategy defined in the Teacher child.
@@ -88,7 +89,7 @@ class Teacher:
 class AZTeacher(Teacher):
     def __init__(
         self,
-        student: RLAgent,
+        student: AZAgent,
         action_map: ActionMap,
         logic: Logic = Logic(),
         num_iterations: int = 100,
@@ -105,7 +106,6 @@ class AZTeacher(Teacher):
             student,
             action_map,
             logic,
-            num_iterations,
             model_folder,
             train_data_folder,
             **kwargs,
@@ -227,8 +227,8 @@ class AZTeacher(Teacher):
         selfplay_data = ReplayContainer(memory_capacity, AlphaZeroMemory)
         selfplay_data_tensors = ReplayContainer(memory_capacity, AlphaZeroMemory)
         action_map = ActionMap(self.game.specs)
-        mcts_kwargs = slice_kwargs(MCTS.__init__, kwargs)
-        arena_kwargs = slice_kwargs(arena.fight, kwargs)
+        mcts_kwargs = utils.slice_kwargs(MCTS.__init__, kwargs)
+        arena_kwargs = utils.slice_kwargs(arena.fight, kwargs)
 
         for i in range(self.n_iters):
 
@@ -266,12 +266,15 @@ class AZTeacher(Teacher):
                             results = future.result()
                             selfplay_data.extend(*results)
                             for result in results:
-                                result.state = self.student.state_to_tensor(
-                                    result.state, perspective=self.student.team
+                                selfplay_data_tensors.push(
+                                    self.student.state_to_tensor(
+                                        result.state, perspective=self.student.team
+                                    ),
+                                    *result[1:],
                                 )
+
                 else:
                     for _ in tqdm(range(self.n_episodes)):
-                        # bookkeeping + plot progress through tqdm
                         # reset search tree
                         mcts = MCTS(
                             model,
@@ -280,14 +283,22 @@ class AZTeacher(Teacher):
                             n_mcts_sims=self.n_mcts_sim,
                             **mcts_kwargs,
                         )
-                        selfplay_data.extend(
-                            self.selfplay_episode(mcts, memory_capacity=memory_capacity)
-                        )
+                        new_replays = self.selfplay_episode(mcts, memory_capacity=memory_capacity)
+                        selfplay_data.extend(new_replays)
+                        for result in new_replays:
+                            selfplay_data_tensors.push(
+                                self.student.state_to_tensor(
+                                    result.state, perspective=self.student.team
+                                ),
+                                *result[1:],
+                            )
 
             # backup history to a file
             # NB! the examples were collected using the model from the previous iteration, so (i-1)
             if not skip_initial_selfplay or i > 0:
-                self.save_train_data(i - 1, filename=kwargs.pop("data_filename", f"iteration_{i}"))
+                self.save_train_data(
+                    i - 1, filename=kwargs.pop("data_filename", f"iteration_{i}")
+                )
 
             # training new network, keeping a copy of the old one
             model.save_checkpoint(folder=self.model_folder, filename="temp.pth.tar")
@@ -312,16 +323,16 @@ class AZTeacher(Teacher):
                 and float(ag_0_wins) / (ag_0_wins + ag_1_wins) < self.acceptance_rate
             ):
                 print("REJECTING NEW MODEL\n")
-                model.load_checkpoint(
-                    folder=self.model_folder, filename="temp.pth.tar"
-                )
+                model.load_checkpoint(folder=self.model_folder, filename="temp.pth.tar")
             else:
                 print("ACCEPTING NEW MODEL\n")
                 model.save_checkpoint(
                     folder=self.model_folder, filename=f"checkpoint_{i}.pth.tar"
                 )
 
-    def train(self, replays: ReplayContainer, epochs: int, batch_size: int, device: str):
+    def train(
+        self, replays: ReplayContainer, epochs: int, batch_size: int, device: str
+    ):
         """
         examples: list of examples, each example is of form (board, pi, v)
         """
@@ -329,19 +340,19 @@ class AZTeacher(Teacher):
         optimizer = optim.Adam(model.parameters())
         for _ in tqdm(range(epochs), desc="Training epoch"):
             model.train()
-            pi_losses = RollingMeter()
-            v_losses = RollingMeter()
+            pi_losses = utils.RollingMeter()
+            v_losses = utils.RollingMeter()
 
-            data_loader = DataLoader(TensorDataset(replays.memory), batch_size=batch_size)
+            data_loader = DataLoader(
+                TensorDataset(replays.memory), batch_size=batch_size
+            )
             batch_bar = tqdm(data_loader)
             for batch_idx, batch in enumerate(data_loader):
                 boards, pis, vs, _ = batch
 
                 boards = torch.cat(boards).to(device)
                 target_pis = torch.tensor(np.array(pis), device=device)
-                target_vs = torch.tensor(
-                    np.array(vs).astype(np.float64), device=device
-                )
+                target_vs = torch.tensor(np.array(vs).astype(np.float64), device=device)
                 # compute output
                 out_pi, out_v = model(boards)
                 l_pi = self.loss_pi(target_pis, out_pi)
@@ -375,96 +386,110 @@ class AZTeacher(Teacher):
 
 
 class DQNTeacher(Teacher):
+    """
+    A Deep Q-Network Teacher using the Double Q Learning strategy[1] and Dueling Networks[2].
 
-    def train(self, n_epochs: int):
+    References
+    ----------
+    [1] Van Hasselt, Hado, Arthur Guez, and David Silver.
+        "Deep reinforcement learning with double q-learning."
+        Proceedings of the AAAI Conference on Artificial Intelligence. Vol. 30. No. 1. 2016.
+        https://ojs.aaai.org/index.php/AAAI/article/download/10295/10154
+    [2] Wang, Ziyu, et al.
+        "Dueling network architectures for deep reinforcement learning."
+        International conference on machine learning. PMLR, 2016.
+        http://proceedings.mlr.press/v48/wangf16.pdf
+    """
+
+    def __init__(
+        self,
+        epsilon_scheduler: RandomActionScheduler,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.epsilon_scheduler = epsilon_scheduler
+
+    def train(
+        self,
+        n_epochs: int,
+        batch_size: int = 4096,
+        memory_capacity: int = 50000,
+        device: str = "cpu",
+        seed: Union[int, np.random.Generator] = None,
+    ):
         """
         Trains a reinforcement agent, acting according to the agents model
         or randomly (with exponentially decaying probability p_random)
         Each transition (state, action, next_state, reward) is stored in a memory.
         Each step in the environment is followed by a learning phase:
             a batch of memories is used to optimize the network model
-        :param env_: training environement
-        :param n_episodes: number of training episodes
-        :return:
+
+        Parameters
+        ----------
+        n_epochs
+        batch_size
+        memory_capacity
+        device
+        seed
+
+        Returns
+        -------
+
         """
-        episode_scores = []  # score = total reward
-        episode_won = [0]  # win-ratio win = 1 loss = -1
-        averages = []
-        best_winratio = 0.5
-        for i_episode in range(n_epochs):
-            state = self._new_state_threadsafe()
+        if not isinstance(self.student, DQNAgent):
+            raise ValueError(
+                f"Provided student is not a DQN agent. Given: {type(self.student)}"
+            )
+        rng = utils.rng_from_seed(seed)
+        replays = ReplayContainer(memory_capacity, DQNMemory)
+        for ep in range(n_epochs):
+            self.game.reset()
+            state = self.game.state
             state_tensor = self.student.state_to_tensor(state)
             while True:
-                # act in environment
-                p_random = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * i_episode / EPS_DECAY)
-                action = env_.agents[0].select_action(state, p_random)  # random action with p_random
-                if action is not None:
-                    move = env_.agents[0].action_to_move(action[0, 0])
+                p_random = self.epsilon_scheduler(ep)
+                do_random = bool(rng.choice(2, p=[1 - p_random, p_random]))
+                # random action chosen with probability p_random
+                if do_random:
+                    action = self.student.select_random_action(state, self.game.logic)
                 else:
-                    move = None
-                # environment step for action
-                reward_value, done, won = env_.step(move)
+                    policy = self.student.model(state_tensor)
+                    action = self.student.select_action(policy, deterministic=True)
+                move = self.action_map.action_to_move(action, state, self.student.team)
 
-                # env.show()
-                # if VERBOSE > 2:
-                #         print(action[0, 0], reward_value)
-                reward = torch.FloatTensor([reward_value]).to(device)
+                # environment step for action
+                status = self.game.run_step(move)
+                reward = torch.tensor(
+                    self.student.reward, dtype=torch.float, device=device
+                )
+                self.student.reward = 0
 
                 # save transition as memory and optimize model
-                if done:  # if terminal state
+                if status != Status.ongoing:  # if terminal state
                     next_state = None
-                    won = 1 if won > 0 else 0
                 else:
-                    next_state = env_.agents[0].state_to_tensor()
+                    next_state = self.student.state_to_tensor(
+                        state, perspective=self.student.team
+                    )
 
-                if move is not None:
-                    memory.push(state, action, next_state, reward)  # store the transition in memory
+                replays.push(
+                    state, action, next_state, reward
+                )  # store the transition in memory
                 state = next_state  # move to the next state
-                optimize_model(agent0.model)  # one step of optimization of target network
+                # one step of optimization of target network
+                self._optimize_model(
+                    self.student.model,
+                    replays.sample(batch_size, rng),
+                    device,
+                )
 
-                if done:
-                    # after each episode print stats
-                    if VERBOSE > 0:
-                        print("Episode {}/{}".format(i_episode, n_episodes))
-                        print("Score (last 100): {}%".format(
-                            100 * round(sum(episode_won[-100:]) / len(episode_won[-100:]), ndigits=3)))
-                        print("Won: {}".format(won))
-                        print("Noise: {}".format(p_random))
-                        # print("Illegal: {}/{}\n".format(env_.illegal_moves, env_.steps))
-                    episode_scores.append(env_.score)
-                    episode_won.append(won)
-                    if VERBOSE > 1:
-                        if i_episode % PLOT_FREQUENCY == 0:
-                            print("Episode {}/{}".format(i_episode, n_episodes))
-                            # utils.plot_scores(episode_scores, N_SMOOTH)  # takes run time
-                            averages = utils.plot_stats(averages, episode_won, N_SMOOTH, PLOT_FREQUENCY)
-                            torch.save(model.state_dict(), './saved_models/{}_current.pkl'.format(env_name))
-                            if averages:
-                                if averages[-1] > best_winratio:
-                                    best_winratio = averages[-1]
-                                    print("Best win ratio: {}".format(np.round(best_winratio, 2)))
-                                    torch.save(model.state_dict(), './saved_models/{}_best.pkl'.format(env_name))
-                            # pickle.dump(averages, open("{}-averages.p".format(env_name), "wb"))
-                            # pickle.dump(episode_won, open("{}-episode_won.p".format(env_name), "wb"))
-
-                    break
-            if i_episode % 500 == 2:
-                if VERBOSE > 2:
-                    run_env(env_, 1)
-
-    def train(self, replays: ReplayContainer,  epochs: int, batch_size: int, device: str):
+    def _optimize_model(self, model: torch.nn.Module, batch: np.ndarray, device: str):
         """
         Sample batch from memory of environment transitions and train network to fit the
         temporal difference TD(0) Q-value approximation
         """
-        if len(replays) < batch_size:
-            return  # not optimizing for not enough memory
-
-        model = self.student.model
         model.train()
-
-        data_loader = DataLoader(TensorDataset(replays.memory), batch_size=batch_size)  # sample memories batch
-        batch = utils.Transition(*zip(*transitions))  # transpose the batch
 
         # Compute a mask of non-final states and concatenate the batch elements
         non_final_mask = []
@@ -484,22 +509,26 @@ class DQNTeacher(Teacher):
 
         state_batch = torch.cat(batch.state)
         action_batch = torch.cat(batch.action)
-
-        reward_batch = torch.cat(batch.total_reward)
+        reward_batch = torch.cat(batch.reward)
 
         # Compute Q(s_t, a) - the model computes Q(s_t), then we select the columns of actions taken
         state_action_values = model(state_batch).gather(1, action_batch)
 
         # Compute V(s_{t+1}) for all next states.
-        next_state_values = torch.zeros(BATCH_SIZE).float().to(device)  # zero for terminal states
-        next_state_values[non_final_mask.cpu()] = model(non_final_next_states).max(1)[
-            0]  # what would the model predict
+        next_state_values = (
+            torch.zeros(BATCH_SIZE).float().to(device)
+        )  # zero for terminal states
+
+        # what would the model predict
+        next_state_values[non_final_mask] = model(non_final_next_states).max(1)[0]
         with torch.no_grad():
             expected_state_action_values = (
-                                                       next_state_values * GAMMA) + reward_batch  # compute the expected Q values
+                next_state_values * GAMMA
+            ) + reward_batch  # compute the expected Q values
 
-        loss = F.smooth_l1_loss(state_action_values.view(-1),
-                                expected_state_action_values.view(-1))  # compute Huber loss
+        loss = F.smooth_l1_loss(
+            state_action_values.view(-1), expected_state_action_values.view(-1)
+        )  # compute Huber loss
 
         # optimize network
         optimizer.zero_grad()  # optimize towards expected q-values

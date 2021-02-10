@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, Optional
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -27,6 +27,14 @@ def slice_kwargs(func, kwargs):
         if p in kwargs:
             sliced_kwargs[p.name] = kwargs.pop_last(p.name)
     return sliced_kwargs
+
+
+def rng_from_seed(seed: Optional[Union[int, np.random.Generator, np.random.RandomState]] = None):
+    if not isinstance(seed, np.random.Generator):
+        rng = np.random.default_rng(seed)
+    else:
+        rng = seed
+    return rng
 
 
 def plot_scores(episode_scores, n_smooth):

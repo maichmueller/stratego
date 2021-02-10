@@ -26,6 +26,7 @@ from stratego.engine import (
     Action,
 )
 from stratego.learning import RewardToken, Representation, DefaultRepresentation
+import stratego.utils as utils
 
 
 class Agent(ABC):
@@ -77,6 +78,7 @@ class RLAgent(Agent, ABC):
         representation: Representation,
         reward_map: Dict[RewardToken, float],
         device="cpu",
+        seed: Union[int, np.random.RandomState, np.random.Generator] = None,
     ):
         super().__init__(team=team)
         self.action_map = action_map
@@ -84,31 +86,68 @@ class RLAgent(Agent, ABC):
         self.model = model
         self.representation = representation
         self.device = device
-        self.total_reward = 0
+        self.rng = utils.rng_from_seed(seed)
 
-        # RL attributes
-        self.score = 0
-        self.total_reward = 0
-
+        self.reward = 0
         self.reward_map: Dict[RewardToken, float] = reward_map
 
-    def select_action(self, policy: Union[torch.Tensor, np.ndarray, Iterable[float]]) -> Action:
+    def select_action(
+        self,
+        policy: Union[torch.Tensor, np.ndarray, Iterable[float]],
+        *args,
+        deterministic: bool = True,
+        **kwargs
+    ) -> Action:
         """
         Choose the action to take with which to form the next move.
         This is usually just the argmax of policies, but may be overwritten.
+        Any args or kwargs are passed down to the `_select_action` implementation.
 
         Parameters
         ----------
         policy: torch.Tensor, np.ndarray or Iterable[float],
             the policy from which to select the appropriate action.
 
+        deterministic: bool,
+            whether the action selection is
+                - deterministic: argmax of policy
+                - stochastic: sampled according to policy
+
         Returns
         -------
         Action,
             the chosen action.
         """
-        action = self.action_map[int(torch.argmax(torch.tensor(policy)))]
-        return action
+        if deterministic:
+            return self._select_action_deterministic(policy, *args, **kwargs)
+        else:
+            return self._select_action_stochastic(policy, *args, **kwargs)
+
+    def _select_action_deterministic(
+            self,
+            policy: Union[torch.Tensor, np.ndarray, Iterable[float]],
+            *args,
+            **kwargs
+    ):
+        """
+        Select action deterministically via argmax by default.
+        No call syntax given.
+        If overwritten, the method's syntax must be known to the caller.
+        """
+        return self.action_map[int(torch.argmax(torch.tensor(policy)))]
+
+    def _select_action_stochastic(
+            self,
+            policy: Union[torch.Tensor, np.ndarray, Iterable[float]],
+            *args,
+            **kwargs
+    ):
+        """
+        Select action by sampling according to policy by default.
+        No call syntax given.
+        If overwritten, the method's syntax must be known to the caller.
+        """
+        return self.rng.choice(self.action_map.actions, p=policy)
 
     def state_to_tensor(
         self, state: State, perspective: Optional[Team] = None
@@ -129,10 +168,12 @@ class RLAgent(Agent, ABC):
         torch.Tensor,
             the state representation as tensor.
         """
-        return self.representation.state_to_tensor(state)
+        if perspective is None:
+            perspective = self.team
+        return self.representation.state_to_tensor(state, perspective)
 
     def add_reward(self, reward_token: RewardToken):
-        self.total_reward += self.reward_map[reward_token]
+        self.reward += self.reward_map[reward_token]
 
 
 class MCAgent(Agent, ABC):
