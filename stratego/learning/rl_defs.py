@@ -9,6 +9,8 @@ from typing import Optional, Callable
 
 import numpy as np
 
+from stratego import utils
+
 
 class RewardToken(Enum):
     illegal = 0  # punish illegal moves
@@ -32,11 +34,12 @@ class ReplayContainer:
     Stores the content-tuple specified on creation.
     """
 
-    def __init__(self, capacity, memory_class):
+    def __init__(self, capacity, memory_class, rng_state: Optional[np.random.Generator] = None):
         self.capacity = capacity
         self.memory = []
         self.position = 0
         self.memory_type = memory_class
+        self.rng = utils.rng_from_seed(rng_state)
 
     def __len__(self):
         return len(self.memory)
@@ -52,10 +55,8 @@ class ReplayContainer:
         self.memory[self.position] = self.memory_type(*args)
         self.position = (self.position + 1) % self.capacity
 
-    def sample(self, batch_size, rng_state: Optional[np.random.Generator] = None):
-        if rng_state is not None:
-            rng_state = np.random.default_rng()
-        return rng_state.choice(self.memory, batch_size, replace=False)
+    def sample(self, batch_size, ):
+        return self.rng.choice(self.memory, batch_size, replace=False)
 
     def extend(self, replays: ReplayContainer):
         for replay in replays:

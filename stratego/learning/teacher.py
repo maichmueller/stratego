@@ -1,7 +1,12 @@
 from abc import abstractmethod, ABC
 from typing import Optional, Union
 
-from stratego.learning import ReplayContainer, AlphaZeroMemory, DQNMemory, RandomActionScheduler
+from stratego.learning import (
+    ReplayContainer,
+    AlphaZeroMemory,
+    DQNMemory,
+    RandomActionScheduler,
+)
 from stratego.algorithms.mcts import MCTS
 
 from stratego import Game
@@ -14,6 +19,7 @@ from copy import deepcopy
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from torch import optim
+from torch.functional import F
 import numpy as np
 
 from pickle import Pickler, Unpickler
@@ -75,14 +81,15 @@ class Teacher(ABC):
 
     def _new_state_threadsafe(self, lock: Optional[Lock] = None):
         """
-        Resets the game and returns a deepcopy of the new state in a thread-safe manner.
+        Resets the game and returns a deepcopy of the new state in a thread-safe manner, if the lock is provided.
         """
+        gen_state = lambda: deepcopy(self.game.reset().state)
         if lock is not None:
             lock.lock()
-        self.game.reset()
-        state = deepcopy(self.game.state)
-        if lock is not None:
+            state = gen_state()
             lock.unlock()
+        else:
+            state = gen_state()
         return state
 
 
@@ -283,7 +290,9 @@ class AZTeacher(Teacher):
                             n_mcts_sims=self.n_mcts_sim,
                             **mcts_kwargs,
                         )
-                        new_replays = self.selfplay_episode(mcts, memory_capacity=memory_capacity)
+                        new_replays = self.selfplay_episode(
+                            mcts, memory_capacity=memory_capacity
+                        )
                         selfplay_data.extend(new_replays)
                         for result in new_replays:
                             selfplay_data_tensors.push(
@@ -399,6 +408,9 @@ class DQNTeacher(Teacher):
         "Dueling network architectures for deep reinforcement learning."
         International conference on machine learning. PMLR, 2016.
         http://proceedings.mlr.press/v48/wangf16.pdf
+    [3] Fujimoto Herke, van Hoof, David Meger
+        "Addressing Function Approximation Error in Actor-Critic Methods"
+        https://arxiv.org/pdf/1802.09477.pdf
     """
 
     def __init__(
@@ -408,12 +420,14 @@ class DQNTeacher(Teacher):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
+
         self.epsilon_scheduler = epsilon_scheduler
 
     def train(
         self,
         n_epochs: int,
         batch_size: int = 4096,
+        gamma: float = 0.99,
         memory_capacity: int = 50000,
         device: str = "cpu",
         seed: Union[int, np.random.Generator] = None,
@@ -439,10 +453,10 @@ class DQNTeacher(Teacher):
         """
         if not isinstance(self.student, DQNAgent):
             raise ValueError(
-                f"Provided student is not a DQN agent. Given: {type(self.student)}"
+                f"Provided student is not a DQN agent. Given: {type(self.student).__name__}"
             )
         rng = utils.rng_from_seed(seed)
-        replays = ReplayContainer(memory_capacity, DQNMemory)
+        replays = ReplayContainer(memory_capacity, DQNMemory, rng)
         for ep in range(n_epochs):
             self.game.reset()
             state = self.game.state
@@ -480,11 +494,12 @@ class DQNTeacher(Teacher):
                 # one step of optimization of target network
                 self._optimize_model(
                     self.student.model,
-                    replays.sample(batch_size, rng),
+                    replays.sample(batch_size),
+                    gamma,
                     device,
                 )
 
-    def _optimize_model(self, model: torch.nn.Module, batch: np.ndarray, device: str):
+    def _optimize_model(self, model: torch.nn.Module, batch: np.ndarray, gamma: float, device: str):
         """
         Sample batch from memory of environment transitions and train network to fit the
         temporal difference TD(0) Q-value approximation
@@ -495,6 +510,8 @@ class DQNTeacher(Teacher):
         non_final_mask = []
         non_final_idx = []
         non_final_next_states = []
+
+        batch_size = len(batch)
 
         for idx, state in enumerate(batch.next_state):
             if state is not None:
@@ -516,14 +533,14 @@ class DQNTeacher(Teacher):
 
         # Compute V(s_{t+1}) for all next states.
         next_state_values = (
-            torch.zeros(BATCH_SIZE).float().to(device)
+            torch.zeros(batch_size).float().to(device)
         )  # zero for terminal states
 
         # what would the model predict
         next_state_values[non_final_mask] = model(non_final_next_states).max(1)[0]
         with torch.no_grad():
             expected_state_action_values = (
-                next_state_values * GAMMA
+                next_state_values * gamma
             ) + reward_batch  # compute the expected Q values
 
         loss = F.smooth_l1_loss(
