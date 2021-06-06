@@ -22,6 +22,13 @@ class RewardToken(Enum):
     kill_mutually = 6  # mutual annihilation of attacking and defending piece
 
 
+class PolicyMode(Enum):
+    stochastic = 0
+    eps_greedy = 1
+    greedy = 2
+    uniform = 3
+
+
 # For DQN: Stores a state-transition (s, a, s', r) tuple
 DQNMemory = namedtuple("DQNMemory", "state, action, next_state, reward")
 # For AlphaZero: Stores a state-policy-value tuple (s, pi, v, player) for the player
@@ -55,7 +62,7 @@ class ReplayContainer:
         self.memory[self.position] = self.memory_type(*args)
         self.position = (self.position + 1) % self.capacity
 
-    def sample(self, batch_size, ):
+    def sample(self, batch_size):
         return self.rng.choice(self.memory, batch_size, replace=False)
 
     def extend(self, replays: ReplayContainer):
@@ -63,13 +70,13 @@ class ReplayContainer:
             self.push(*replay)
 
 
-class RandomActionScheduler(ABC):
+class ExplorationScheduler(ABC):
     @abstractmethod
     def __call__(self, epoch: int) -> float:
         raise NotImplementedError
 
 
-class LinearRandomActionScheduler(RandomActionScheduler):
+class LinearExplorationScheduler(ExplorationScheduler):
     def __init__(
         self,
         start_epoch: int,

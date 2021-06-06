@@ -5,7 +5,8 @@ from stratego.learning import (
     ReplayContainer,
     AlphaZeroMemory,
     DQNMemory,
-    RandomActionScheduler,
+    ExplorationScheduler,
+    PolicyMode,
 )
 from stratego.algorithms.mcts import MCTS
 
@@ -32,9 +33,14 @@ from multiprocessing import cpu_count, Lock
 import stratego.utils as utils
 
 
-class Teacher(ABC):
+class Algorithm(ABC):
+    """
+    Base Class for a Reinforcement Learning algorithm.
+    """
+
     def __init__(
         self,
+        game: Game,
         student: RLAgent,
         action_map: ActionMap,
         logic: Logic = Logic(),
@@ -54,16 +60,14 @@ class Teacher(ABC):
             student, RLAgent
         ), f"Student agent to coach has to be of type '{RLAgent}'. Given type '{type(self.student).__name__}'"
         self.student: RLAgent = student
-        self.student_mirror: RLAgent = deepcopy(
-            student
-        )  # a copy of the student to fight against
+
         self.action_map = action_map
-        self.game = Game(self.student, self.student_mirror, logic=logic, **kwargs)
+        self.game = game
 
     @abstractmethod
-    def teach(self, *args, **kwargs):
+    def run(self, *args, **kwargs):
         """
-        Teach the reinforcement learning agent according to the strategy defined in the Teacher child.
+        Train the reinforcement learning agent according to the method defined in the concrete class.
         """
         raise NotImplementedError
 
@@ -93,9 +97,10 @@ class Teacher(ABC):
         return state
 
 
-class AZTeacher(Teacher):
+class AZAlgorithm(Algorithm):
     def __init__(
         self,
+        game: Game,
         student: AZAgent,
         action_map: ActionMap,
         logic: Logic = Logic(),
@@ -110,6 +115,7 @@ class AZTeacher(Teacher):
         **kwargs,
     ):
         super().__init__(
+            game,
             student,
             action_map,
             logic,
@@ -117,6 +123,21 @@ class AZTeacher(Teacher):
             train_data_folder,
             **kwargs,
         )
+
+        assert (
+            isinstance(
+                game.agents[self.student.team.opponent()],
+                type(game.agents[self.student.team]),
+            ),
+            "All agents in an AlphaZero training algorithm need to be copies of each other.",
+        )
+        assert (
+            isinstance(game.agents[self.student.team], AZAgent),
+            "Student needs to be an AlphaZero Agent.",
+        )
+
+        self.student_mirror: RLAgent = game.agents[self.student.team.opponent()]
+
         self.n_iters = num_iterations
         self.n_episodes = num_selfplay_episodes
         self.n_mcts_sim = mcts_simulations
@@ -193,7 +214,7 @@ class AZTeacher(Teacher):
                     entry.value = status.value * perspective
                 return replays
 
-    def teach(
+    def run(
         self,
         memory_capacity: int = 100000,
         load_checkpoint_data: bool = False,
@@ -212,28 +233,43 @@ class AZTeacher(Teacher):
         only if it wins with a rate greater than the threshold.
         """
         model = self.student.model
-        checkpoint_found = False
         skip_initial_selfplay = load_checkpoint_data and not load_checkpoint_model
 
         if load_checkpoint_data:
+            checkpoint_fname = kwargs.pop("checkpoint_fname", "checkpoint")
+            checkpoint = None
+            if not os.path.isfile(
+                os.path.join(
+                    self.train_data_folder, f"{checkpoint_fname}_0.pth.tar" + ".data"
+                )
+            ):
+                raise ValueError(
+                    f"No checkpoint file found with name: {checkpoint_fname}"
+                )
             i = 0
             while True:
                 if os.path.isfile(
-                    self.train_data_folder + f"checkpoint_{i}.pth.tar" + ".data"
+                    os.path.join(
+                        self.train_data_folder,
+                        f"{checkpoint_fname}_{i}.pth.tar" + ".data",
+                    )
                 ):
-                    checkpoint = f"checkpoint_{i}.pth.tar"
-                    checkpoint_found = True
+                    checkpoint = f"{checkpoint_fname}_{i}.pth.tar"
                     i += 1
                 else:
+                    # we have found the last iteration data package, we can therefore stop searching
+                    # and continue from here
                     break
-        if load_checkpoint_model and checkpoint_found:
+
             self.load_train_data(checkpoint)
-            if os.path.isfile(self.model_folder + f"best.pth.tar"):
-                model.load_checkpoint(self.model_folder, f"best.pth.tar")
+            model_fpath = os.path.join(
+                self.model_folder, f"{kwargs.pop('model_fname', 'best')}.pth.tar"
+            )
+            if os.path.isfile(model_fpath):
+                model.load_checkpoint(model_fpath)
 
         selfplay_data = ReplayContainer(memory_capacity, AlphaZeroMemory)
         selfplay_data_tensors = ReplayContainer(memory_capacity, AlphaZeroMemory)
-        action_map = ActionMap(self.game.specs)
         mcts_kwargs = utils.slice_kwargs(MCTS.__init__, kwargs)
         arena_kwargs = utils.slice_kwargs(arena.fight, kwargs)
 
@@ -243,64 +279,15 @@ class AZTeacher(Teacher):
 
             if not skip_initial_selfplay or i > 1:
                 model.network.share_memory()
-
-                if multiprocess:
-                    pbar = tqdm(total=self.n_episodes)
-                    pbar.set_description("Selfplay Episode")
-                    lock = Lock()
-                    with ProcessPoolExecutor(
-                        max_workers=kwargs.pop("cpu_count", cpu_count())
-                    ) as executor:
-                        futures = list(
-                            (
-                                executor.submit(
-                                    self.selfplay_episode,
-                                    mcts=MCTS(
-                                        model,
-                                        action_map=action_map,
-                                        logic=self.game.logic,
-                                        n_mcts_sims=self.n_mcts_sim,
-                                        **mcts_kwargs,
-                                    ),
-                                    lock=lock,
-                                    memory_capacity=memory_capacity,
-                                )
-                                for i in range(self.n_episodes)
-                            )
-                        )
-                        for future in as_completed(futures):
-                            pbar.update(1)
-                            results = future.result()
-                            selfplay_data.extend(*results)
-                            for result in results:
-                                selfplay_data_tensors.push(
-                                    self.student.state_to_tensor(
-                                        result.state, perspective=self.student.team
-                                    ),
-                                    *result[1:],
-                                )
-
-                else:
-                    for _ in tqdm(range(self.n_episodes)):
-                        # reset search tree
-                        mcts = MCTS(
-                            model,
-                            action_map=action_map,
-                            logic=self.game.logic,
-                            n_mcts_sims=self.n_mcts_sim,
-                            **mcts_kwargs,
-                        )
-                        new_replays = self.selfplay_episode(
-                            mcts, memory_capacity=memory_capacity
-                        )
-                        selfplay_data.extend(new_replays)
-                        for result in new_replays:
-                            selfplay_data_tensors.push(
-                                self.student.state_to_tensor(
-                                    result.state, perspective=self.student.team
-                                ),
-                                *result[1:],
-                            )
+                self.create_selfplay_data(
+                    model,
+                    selfplay_data,
+                    selfplay_data_tensors,
+                    multiprocess,
+                    memory_capacity,
+                    kwargs.pop("cpu_count", cpu_count()),
+                    mcts_kwargs,
+                )
 
             # backup history to a file
             # NB! the examples were collected using the model from the previous iteration, so (i-1)
@@ -338,6 +325,65 @@ class AZTeacher(Teacher):
                 model.save_checkpoint(
                     folder=self.model_folder, filename=f"checkpoint_{i}.pth.tar"
                 )
+
+    def create_selfplay_data(
+        self,
+        model: torch.nn.Module,
+        selfplay_container: ReplayContainer,
+        selfplay_tensors_container: ReplayContainer,
+        multiprocess: bool,
+        memory_capacity: int,
+        n_cpus: int,
+        mcts_kwargs,
+    ):
+        def append(outcomes):
+            nonlocal self
+            selfplay_container.extend(*outcomes)
+            for outcome in outcomes:
+                selfplay_tensors_container.push(
+                    self.student.state_to_tensor(
+                        outcome.state, perspective=self.student.team
+                    ),
+                    *outcome[1:],
+                )
+
+        if multiprocess:
+            pbar = tqdm(total=self.n_episodes)
+            pbar.set_description("Selfplay Episode")
+            lock = Lock()
+            with ProcessPoolExecutor(max_workers=n_cpus) as executor:
+                futures = list(
+                    (
+                        executor.submit(
+                            self.selfplay_episode,
+                            mcts=MCTS(
+                                model,
+                                action_map=self.action_map,
+                                logic=self.game.logic,
+                                n_mcts_sims=self.n_mcts_sim,
+                                **mcts_kwargs,
+                            ),
+                            lock=lock,
+                            memory_capacity=memory_capacity,
+                        )
+                        for _ in range(self.n_episodes)
+                    )
+                )
+                for future in as_completed(futures):
+                    pbar.update(1)
+                    append(future.result())
+
+        else:
+            for _ in tqdm(range(self.n_episodes), "Selfplay Episode"):
+                # new search tree
+                mcts = MCTS(
+                    model,
+                    action_map=self.action_map,
+                    logic=self.game.logic,
+                    n_mcts_sims=self.n_mcts_sim,
+                    **mcts_kwargs,
+                )
+                append(self.selfplay_episode(mcts, memory_capacity=memory_capacity))
 
     def train(
         self, replays: ReplayContainer, epochs: int, batch_size: int, device: str
@@ -394,7 +440,7 @@ class AZTeacher(Teacher):
         return torch.sum((targets - outputs.view(-1)) ** 2) / targets.size()[0]
 
 
-class DQNTeacher(Teacher):
+class DQNAlgorithm(Algorithm):
     """
     A Deep Q-Network Teacher using the Double Q Learning strategy[1] and Dueling Networks[2].
 
@@ -415,13 +461,30 @@ class DQNTeacher(Teacher):
 
     def __init__(
         self,
-        epsilon_scheduler: RandomActionScheduler,
+        epsilon_scheduler: ExplorationScheduler,
         *args,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-
+        self.state_dict_target = self.student.model.state_dict()
+        self.state_dict_cache = None
         self.epsilon_scheduler = epsilon_scheduler
+
+    def is_target(self):
+        return self.state_dict_cache is not None
+
+    def swap_state_dicts(self):
+        """
+        Switches the regular DQN network parameters with the target networks parameters and vice versa, depending on
+        its current status.
+        """
+        model = self.student.model
+        if not self.is_target():
+            self.state_dict_cache = deepcopy(model.state_dict())
+            model.load_state_dict(self.state_dict_target)
+        else:
+            model.load_state_dict(self.state_dict_cache)
+            self.state_dict_cache = None
 
     def train(
         self,
@@ -435,7 +498,7 @@ class DQNTeacher(Teacher):
         """
         Trains a reinforcement agent, acting according to the agents model
         or randomly (with exponentially decaying probability p_random)
-        Each transition (state, action, next_state, reward) is stored in a memory.
+        Each transition (state s, action a, next_state s', reward r) is stored in a memory.
         Each step in the environment is followed by a learning phase:
             a batch of memories is used to optimize the network model
 
@@ -443,17 +506,14 @@ class DQNTeacher(Teacher):
         ----------
         n_epochs
         batch_size
+        gamma
         memory_capacity
         device
         seed
-
-        Returns
-        -------
-
         """
         if not isinstance(self.student, DQNAgent):
             raise ValueError(
-                f"Provided student is not a DQN agent. Given: {type(self.student).__name__}"
+                f"Provided agent to train is not a DQN agent. Given: {type(self.student).__name__}"
             )
         rng = utils.rng_from_seed(seed)
         replays = ReplayContainer(memory_capacity, DQNMemory, rng)
@@ -461,15 +521,12 @@ class DQNTeacher(Teacher):
             self.game.reset()
             state = self.game.state
             state_tensor = self.student.state_to_tensor(state)
-            while True:
-                p_random = self.epsilon_scheduler(ep)
-                do_random = bool(rng.choice(2, p=[1 - p_random, p_random]))
-                # random action chosen with probability p_random
-                if do_random:
-                    action = self.student.select_random_action(state, self.game.logic)
-                else:
-                    policy = self.student.model(state_tensor)
-                    action = self.student.select_action(policy, deterministic=True)
+            status = self.game.state.status
+            while status == Status.ongoing:
+                policy = self.student.model(state_tensor)
+                action = self.student.sample_action(
+                    policy, self.epsilon_scheduler(ep), mode=PolicyMode.eps_greedy
+                )
                 move = self.action_map.action_to_move(action, state, self.student.team)
 
                 # environment step for action
@@ -480,12 +537,10 @@ class DQNTeacher(Teacher):
                 self.student.reward = 0
 
                 # save transition as memory and optimize model
-                if status != Status.ongoing:  # if terminal state
-                    next_state = None
-                else:
-                    next_state = self.student.state_to_tensor(
-                        state, perspective=self.student.team
-                    )
+
+                next_state = self.student.state_to_tensor(
+                    state, perspective=self.student.team
+                ) if status != Status.ongoing else None
 
                 replays.push(
                     state, action, next_state, reward
@@ -493,42 +548,46 @@ class DQNTeacher(Teacher):
                 state = next_state  # move to the next state
                 # one step of optimization of target network
                 self._optimize_model(
-                    self.student.model,
                     replays.sample(batch_size),
                     gamma,
                     device,
                 )
 
-    def _optimize_model(self, model: torch.nn.Module, batch: np.ndarray, gamma: float, device: str):
+    def _optimize_model(
+        self, batch: np.ndarray, gamma: float, device: str
+    ):
         """
         Sample batch from memory of environment transitions and train network to fit the
         temporal difference TD(0) Q-value approximation
         """
+        model = self.student.model
         model.train()
-
+        optimizer = torch.optim.Adam(model.parameters())
         # Compute a mask of non-final states and concatenate the batch elements
         non_final_mask = []
-        non_final_idx = []
         non_final_next_states = []
 
         batch_size = len(batch)
 
-        for idx, state in enumerate(batch.next_state):
-            if state is not None:
+        states, actions, rewards = [], [], []
+        for idx, entry in enumerate(batch):
+            states.append(entry.state)
+            actions.append(entry.action)
+            rewards.append(entry.reward)
+            if (next_state := entry.next_state) is not None:
                 non_final_mask.append(True)
-                non_final_idx.append(idx)
-                non_final_next_states.append(state)
+                non_final_next_states.append(next_state)
             else:
                 non_final_mask.append(False)
+
         non_final_mask = torch.ByteTensor(non_final_mask)
-        # non_final_idx = np.array(non_final_idx)
         non_final_next_states = torch.cat(non_final_next_states)
 
-        state_batch = torch.cat(batch.state)
-        action_batch = torch.cat(batch.action)
-        reward_batch = torch.cat(batch.reward)
+        state_batch = torch.cat(states)
+        action_batch = torch.cat(actions)
+        reward_batch = torch.cat(rewards)
 
-        # Compute Q(s_t, a) - the model computes Q(s_t), then we select the columns of actions taken
+        # Compute Q(s_t, a) - the model computes Q(s_t, . ), then we select the columns of actions taken
         state_action_values = model(state_batch).gather(1, action_batch)
 
         # Compute V(s_{t+1}) for all next states.
@@ -537,7 +596,11 @@ class DQNTeacher(Teacher):
         )  # zero for terminal states
 
         # what would the model predict
-        next_state_values[non_final_mask] = model(non_final_next_states).max(1)[0]
+        # computes argmax_a Q_1(s,a)
+        q_estimate_choices = model(non_final_next_states).max(1).indices
+        self.swap_state_dicts()
+        # the next line assigns the double q estimates: Q_2( argmax_a Q_1(s,a))
+        next_state_values[non_final_mask] = model(non_final_next_states)[:, q_estimate_choices]
         with torch.no_grad():
             expected_state_action_values = (
                 next_state_values * gamma

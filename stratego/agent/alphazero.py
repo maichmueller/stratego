@@ -1,5 +1,6 @@
 from stratego.agent import RLAgent
 from stratego.engine import Team, State
+from stratego.learning import PolicyMode
 
 
 class AZAgent(RLAgent):
@@ -15,7 +16,7 @@ class AZAgent(RLAgent):
         state_tensor = self.state_to_tensor(state)
         policy, _ = self.model.predict(state_tensor)
 
-        action = self.select_action(policy)
+        action = self.sample_action(policy, mode=PolicyMode.greedy)
         if state.flipped_teams:
             state.flip_teams()
             action = self.action_map.invert_action(action)

@@ -37,8 +37,6 @@ def _build_default_filters(own_team: Team):
     ----------
     own_team: Team,
         the team from whose perspective the filters are built.
-    specs: GameSpecification,
-        the specifications of the current game.
 
     Returns
     -------

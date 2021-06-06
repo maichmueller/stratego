@@ -1,16 +1,8 @@
-import math
-import numpy as np
-
-import torch
-import torch.nn.functional as F
 import torch.optim as optim
 
 import agent
-from stratego.learning import teacher
+from stratego.algorithms import algorithms
 import utils
-import copy
-
-
 
 
 def run_env(env, n_runs=100, show=True):
@@ -29,7 +21,7 @@ def run_env(env, n_runs=100, show=True):
         too_many_steps_games = 0
         while not done:
             state = env.agents[0].state_to_tensor()  # for the reinforcement agent convert board to state input
-            action = env.agents[0].select_action(state, 0.00)
+            action = env.agents[0].sample_action(state, 0.00)
             if action is not None:
                 action = action[0, 0]  # action is unwrapped from the LongTensor
             move = env.agents[0].action_to_move(action)  # e.g. action = 1 -> move = ((0, 0), (0, 1))
@@ -69,7 +61,7 @@ agent0 = agent.Stratego(0)
 agent1 = agent.RandomAgent(1)
 # agent1 = agent.Random(1)
 # agent1.model = agent0.model  # if want to train by self-play
-env__ = teacher.Trainer(agent0, agent1, False, "custom", [0, 1])
+env__ = algorithms.Trainer(agent0, agent1, False, "custom", [0, 1])
 env_name = "stratego"
 
 model = env__.agents[0].model  # optimize model of agent0

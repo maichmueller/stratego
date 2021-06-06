@@ -1,9 +1,10 @@
 from .rl_defs import (
     RewardToken,
+    PolicyMode,
     ReplayContainer,
     DQNMemory,
     AlphaZeroMemory,
-    RandomActionScheduler,
-    LinearRandomActionScheduler,
+    ExplorationScheduler,
+    LinearExplorationScheduler,
 )
 from .representation import Representation, DefaultRepresentation

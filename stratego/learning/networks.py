@@ -129,7 +129,7 @@ class Conv(nn.Module):
 
 class FC(nn.Module):
     """
-    Convenience class to create a chain of linear layers
+    Convenience class to create a chain of fully connected layers
     """
 
     def __init__(
@@ -147,14 +147,14 @@ class FC(nn.Module):
         self.start_layer_exponent = start_layer_exponent
         self.hidden_nodes = 2 ** start_layer_exponent
         self.nr_lin_layers = nr_lin_layers
-        self.linear_layers = nn.ModuleList(
+        self.linear_layers: nn.ModuleList = nn.ModuleList(
             [nn.Linear(self.dim_input, self.hidden_nodes)]
         )
         for i in range(self.nr_lin_layers - 2):
-            denom1 = 2 ** i
-            denom2 = 2 ** (i + 1)
+            denom_in = 2 ** i
+            denom_out = 2 ** (i + 1)
             self.linear_layers.extend(
-                [nn.Linear(self.hidden_nodes / denom1, self.hidden_nodes / denom2)]
+                [nn.Linear(self.hidden_nodes / denom_in, self.hidden_nodes / denom_out)]
             )
 
         self.linear_layers.extend(

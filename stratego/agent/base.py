@@ -25,7 +25,7 @@ from stratego.engine import (
     ActionMap,
     Action,
 )
-from stratego.learning import RewardToken, Representation, DefaultRepresentation
+from stratego.learning import RewardToken, Representation, DefaultRepresentation, PolicyMode
 import stratego.utils as utils
 
 
@@ -77,7 +77,7 @@ class RLAgent(Agent, ABC):
         model: torch.nn.Module,
         representation: Representation,
         reward_map: Dict[RewardToken, float],
-        device="cpu",
+        device: str = "cpu",
         seed: Union[int, np.random.RandomState, np.random.Generator] = None,
     ):
         super().__init__(team=team)
@@ -91,11 +91,11 @@ class RLAgent(Agent, ABC):
         self.reward = 0
         self.reward_map: Dict[RewardToken, float] = reward_map
 
-    def select_action(
+    def sample_action(
         self,
         policy: Union[torch.Tensor, np.ndarray, Iterable[float]],
         *args,
-        deterministic: bool = True,
+        mode: PolicyMode,
         **kwargs
     ) -> Action:
         """
@@ -108,46 +108,74 @@ class RLAgent(Agent, ABC):
         policy: torch.Tensor, np.ndarray or Iterable[float],
             the policy from which to select the appropriate action.
 
-        deterministic: bool,
-            whether the action selection is
-                - deterministic: argmax of policy
-                - stochastic: sampled according to policy
+        mode: PolicyMode,
+            the value corresponds to different action selection paradigms
+                stochastic - sampled according to policy
+                epsilon-greedy - argmax selected with prob 1-eps, rest share remaining eps prob. mass
+                greedy - argmax of policy (deterministic)
+                uniform - samples from all actions with p > 0 uniformly
 
         Returns
         -------
         Action,
             the chosen action.
         """
-        if deterministic:
-            return self._select_action_deterministic(policy, *args, **kwargs)
-        else:
+        if mode == PolicyMode.stochastic:
             return self._select_action_stochastic(policy, *args, **kwargs)
+        elif mode == PolicyMode.eps_greedy:
+            eps = float(args[0])
+            return self._select_action_eps_greedy(policy, eps, *args, **kwargs)
+        elif mode == PolicyMode.greedy:
+            return self._select_action_greedy(policy, *args, **kwargs)
+        elif mode == PolicyMode.uniform:
+            return self._select_action_uniform(*args, **kwargs)
+        else:
+            raise ValueError(f"mode {mode} not supported. Allowed values are {[e.value for e in PolicyMode]}.")
 
-    def _select_action_deterministic(
-            self,
-            policy: Union[torch.Tensor, np.ndarray, Iterable[float]],
-            *args,
-            **kwargs
+    def _select_action_greedy(
+        self, policy: Union[torch.Tensor, np.ndarray, Iterable[float]], *args, **kwargs
     ):
         """
         Select action deterministically via argmax by default.
-        No call syntax given.
-        If overwritten, the method's syntax must be known to the caller.
         """
         return self.action_map[int(torch.argmax(torch.tensor(policy)))]
 
     def _select_action_stochastic(
-            self,
-            policy: Union[torch.Tensor, np.ndarray, Iterable[float]],
-            *args,
-            **kwargs
+        self, policy: Union[torch.Tensor, np.ndarray, Iterable[float]], *args, **kwargs
     ):
         """
         Select action by sampling according to policy by default.
-        No call syntax given.
-        If overwritten, the method's syntax must be known to the caller.
         """
         return self.rng.choice(self.action_map.actions, p=policy)
+
+    def _select_action_eps_greedy(
+        self,
+        policy: Union[torch.Tensor, np.ndarray, Iterable[float]],
+        eps: float,
+        *args,
+        **kwargs
+    ):
+        """
+        Select action by sampling with the argmax action having p = 1 - eps, and the remaining actions sharing the
+        residual prob. mass.
+        """
+        argmax = int(torch.argmax(torch.tensor(policy)))
+        prob = np.ones(self.action_dim) * (eps / (self.action_dim - 1))
+        prob[argmax] = 1 - eps
+        return self.rng.choice(self.action_map.actions, p=prob)
+
+    def _select_action_uniform(
+        self,
+        policy: Union[torch.Tensor, np.ndarray, Iterable[float]],
+        *args,
+        **kwargs
+    ):
+        """
+        Sample an action by sampling according to the policy's possible actions (p > 0).
+        """
+        prob = np.ones(self.action_dim) * torch.ceil(policy)
+        prob = prob / prob.sum()
+        return self.rng.choice(self.action_map.actions, p=prob)
 
     def state_to_tensor(
         self, state: State, perspective: Optional[Team] = None
