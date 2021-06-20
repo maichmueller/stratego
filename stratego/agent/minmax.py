@@ -5,17 +5,17 @@ import torch
 
 import copy
 from stratego import utils
-from stratego.engine import Logic
+from stratego.core import Logic
 
 
-class MiniMax(Agent):
+class MinMax(Agent):
     """
-    Agent deciding his moves based on the minimax algorithm. The agent guessed the enemies setup
+    Agent deciding his moves based on the minmax algorithm. The agent guessed the enemies setup
     before making a decision by using the current information available about the pieces.
     """
 
     def __init__(self, team, depth=None):
-        super(MiniMax, self).__init__(team=team)
+        super(MinMax, self).__init__(team=team)
         # rewards for planning the move
         self.kill_reward = 10  # killing an enemy piece
         self.neutral_fight = 2  # a neutral outcome of a fight
@@ -41,7 +41,7 @@ class MiniMax(Agent):
             self.max_depth = self.ext_depth
         # make sure a flag win will be discounted by a factor that guarantees a preference towards immediate flag kill
         self.winGameReward = max(self.winGameReward, self.max_depth * self.kill_reward)
-        return self.minimax(max_depth=self.max_depth)
+        return self.minmax(max_depth=self.max_depth)
 
     def set_max_depth(self):
         n_alive_enemies = sum(
@@ -57,7 +57,7 @@ class MiniMax(Agent):
             # four moves each player lookahead
             self.max_depth = 8
 
-    def minimax(self, max_depth):
+    def minmax(self, max_depth):
         """
         given the maximum depth, copy the known board so far, assign the pieces by random, while still
         respecting the current knowledge, and then decide the move via minimax algorithm.
@@ -263,14 +263,14 @@ class MiniMax(Agent):
         # get information about enemy pieces (how many, which alive, which types, and indices in assign. array)
         enemy_pieces = copy.deepcopy(self.ordered_opp_pieces)
         enemy_pieces_alive = [piece for piece in enemy_pieces if not piece.dead]
-        types_alive = [int for piece in enemy_pieces_alive]
+        tokens_alive = [piece.token for piece in enemy_pieces_alive]
 
         # do the following as long as the drawn assignment is not consistent with the current knowledge about them
         consistent = False
         sample = None
         while not consistent:
             # choose as many pieces randomly as there are enemy pieces alive
-            sample = np.random.choice(types_alive, len(types_alive), replace=False)
+            sample = np.random.choice(tokens_alive, len(tokens_alive), replace=False)
             # while-loop break condition
             consistent = True
             for idx, piece in enumerate(enemy_pieces_alive):
@@ -314,23 +314,23 @@ class MiniMax(Agent):
         return board
 
 
-class OmniscientMiniMax(MiniMax):
+class OmniscientMinMax(MinMax):
     """
     Child of MiniMax agent. This agent is omniscient and thus knows the location and type of each
     piece of the enemy. It then plans by doing a minimax algorithm.
     """
 
     def __init__(self, team, setup=None, depth=None):
-        super(OmniscientMiniMax, self).__init__(team=team, setup=setup, depth=depth)
+        super(OmniscientMinMax, self).__init__(team=team, setup=setup, depth=depth)
 
-    def minimax(self, max_depth):
+    def minmax(self, max_depth):
         chosen_action = self.max_val(
             self.board, 0, -float("inf"), float("inf"), max_depth
         )[1]
         return chosen_action
 
 
-class OmniscientHeuristic(OmniscientMiniMax):
+class OmniscientHeuristic(OmniscientMinMax):
     """
     Omniscient Minimax planner, that uses a learned board heuristic as evaluation function.
     """
@@ -361,7 +361,7 @@ class OmniscientHeuristic(OmniscientMiniMax):
             )
 
 
-class Heuristic(MiniMax):
+class Heuristic(MinMax):
     """
     Non omniscient Minimax planner with learned board evluation function.
     """
@@ -392,7 +392,7 @@ class Heuristic(MiniMax):
             )
 
 
-class MonteCarlo(MiniMax):
+class MonteCarlo(MinMax):
     """
     Monte carlo agent, simulating the value of each move and choosing the best.
     """

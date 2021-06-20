@@ -1,4 +1,4 @@
-from stratego.engine import Board, Team, Piece, Obstacle, Token, State
+from stratego.core import Board, Team, Piece, Obstacle, Token, State
 
 import numpy as np
 

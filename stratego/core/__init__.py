@@ -1,4 +1,4 @@
-from .board import Board
+from .board import Board, InfoBoard
 from .state import State, History
 from .logic import Logic
 from .piece import Piece, ShadowPiece, Obstacle

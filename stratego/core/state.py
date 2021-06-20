@@ -5,7 +5,7 @@ from typing import Sequence, Optional, Tuple, Dict, List
 from .game_defs import Status, Token, Team
 from .piece import Piece, ShadowPiece, Obstacle
 from .position import Position, Move
-from .board import Board
+from .board import Board, InfoBoard
 
 import numpy as np
 
@@ -139,20 +139,7 @@ class State:
         self._turn_counter = count
         self._active_team = Team((count + int(self._starting_team)) % 2)
 
-    def get_info_state(self, team: Team):
-        return State(
-            self.board.get_info_board(team),
-            starting_team=self._starting_team,
-            history=self.history,
-            turn_count=self.turn_counter,
-            flipped_teams=self.flipped_teams,
-            dead_pieces=self.dead_pieces,
-        )
-
-    def update_board(
-        self,
-        pos_to_piece_map: Dict[Position, Piece]
-    ):
+    def update_board(self, pos_to_piece_map: Dict[Position, Piece]):
         """
         Parameters
         ----------
@@ -198,3 +185,17 @@ class State:
             if piece is not None and not isinstance(piece, Obstacle):
                 piece.team += 1
                 piece.change_position(pos)
+
+
+class InfoState(State):
+    def __init__(self, state: State, team: Team):
+        super(InfoState, self).__init__(
+            InfoBoard(state.board, team),
+            state.starting_team,
+            state.piece_by_id,
+            state.history,
+            state.turn_counter,
+            state.flipped_teams,
+            state.status,
+            state.dead_pieces
+        )

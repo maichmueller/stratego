@@ -7,7 +7,7 @@ import torch
 import numpy as np
 
 from stratego.agent import RLAgent
-from stratego.engine import ActionMap, Logic, Status, Team, State
+from stratego.core import ActionMap, Logic, Status, Team, State
 
 EPS = 1e-8
 

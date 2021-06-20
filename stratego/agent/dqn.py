@@ -1,28 +1,23 @@
 from copy import deepcopy
 from functools import singledispatchmethod
 
-from stratego.agent import RLAgent
+from stratego.agent import DRLAgent
 
 import numpy as np
 import torch
 from typing import Union, Iterable
 
-from stratego.engine import Action, Logic, State, Team
+from stratego.core import Action, Logic, State, Team
 from stratego.learning import PolicyMode
 
 
-class DQNAgent(RLAgent):
+class DQNAgent(DRLAgent):
     """
     Deep-Q Network agent. Estimates Q values in its model with double learning.
     """
 
-    def __init__(self, *args, rng: Union[int, np.random.Generator] = None, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-        if not isinstance(rng, np.random.Generator):
-            self.rng = np.random.default_rng(rng)
-        else:
-            self.rng = rng
 
     def decide_move(self, state: State, *args, **kwargs):
         if self.team == Team.red:
@@ -40,17 +35,7 @@ class DQNAgent(RLAgent):
         move = self.action_map.action_to_move(action, state, self.team)
         return move
 
-    @singledispatchmethod
-    def q_values(self, state):
-        raise NotImplementedError
-
-    @q_values.register
-    def q_values(self, state: State):
-        state_tensor = self.state_to_tensor(state)
-        return self.model.predict(state_tensor)
-
-    @q_values.register
-    def q_values(self, state: torch.Tensor):
+    def q_values(self, state: Union[State, torch.Tensor]):
+        if isinstance(state, State):
+            state = self.state_to_tensor(state)
         return self.model.predict(state)
-
-

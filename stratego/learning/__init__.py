@@ -1,7 +1,7 @@
 from .rl_defs import (
     RewardToken,
     PolicyMode,
-    ReplayContainer,
+    Experience,
     DQNMemory,
     AlphaZeroMemory,
     ExplorationScheduler,

@@ -30,14 +30,14 @@ class Piece(PieceBase):
         team: Union[int, Team],
         token: Union[int, Token],
         version: int = 1,
+        hidden: bool = True
     ):
         is_flag_or_bomb = token not in (Token.flag, Token.bomb)
-        super().__init__(position, True, is_flag_or_bomb)
+        super().__init__(position, hidden, is_flag_or_bomb)
         self.team = Team(team)
         self.token = Token(token)
         self.version = version
         self.dead = False
-        self.hidden = True
         if is_flag_or_bomb:
             self.move_range = 0
         elif self.token == Token.scout:
@@ -101,10 +101,20 @@ class ShadowPiece(PieceBase):
     """
     Unknown Piece class. This is a placeholder for slicing the true board down to an individual agent's information.
     """
-
+    @singledispatchmethod
     def __init__(self, position: Position, team: Team):
         super().__init__(position)
         self.team = team
+        self.excluded_tokens: Set[Token] = set()
+
+    @__init__.register
+    def _(self, piece: Piece):
+        self.__init__(piece.position, piece.team)
 
     def __repr__(self):
         return f"{'B' if self.team == Team.blue else 'R'}[?]"
+
+    def exclude(self, *tokens: Token):
+        self.excluded_tokens = self.excluded_tokens.union(tokens)
+
+

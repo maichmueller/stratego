@@ -4,7 +4,7 @@ from stratego.agent import Agent
 
 import numpy as np
 
-from stratego.engine import State, Logic, Team
+from stratego.core import State, Logic, Team
 
 
 class RandomAgent(Agent):

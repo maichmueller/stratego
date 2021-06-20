@@ -121,91 +121,6 @@ def plot_stats_all(episode_won, end_episode):
     plt.pause(0.001)  # pause a bit so that plots are updated
 
 
-def visualize_features(n_points, environment, env_name):
-    """
-    Visualize with t-SNE the models representation of a board state
-    :param n_points: number of points in t-SNE plot
-    :param env_name: environment name for plotting
-    :return: plot of t-SNE and plot of some board states
-    """
-    boards = []
-    states = []
-    model = environment.agents[0].model
-    interrupt = False
-
-    print("Acquiring features")
-    for i in range(n_points):
-        environment.reset()
-        done = False
-
-        while not done:
-            _, done, won = environment.step()
-
-            board = copy.deepcopy(environment.board)
-            state = environment.agents[0].state_to_tensor()
-            boards.append(board)
-            states.append(state)
-            if (
-                environment.steps > 20
-            ):  # break loops to obtain more diverse feature space
-                break
-            if len(states) >= n_points:  # interrupt simulation if enough states
-                interrupt = True
-                break
-        if interrupt:
-            break
-
-    states = Variable(torch.cat(states))
-    features = model.extract_features(states)
-    action_values = F.sigmoid(model.lin_final(features))
-    features = features.data.numpy()
-    state_values = action_values.data.numpy().max(1)
-
-    print("Computing t-SNE embedding")
-    tsne = TSNE(n_components=2, init="pca", random_state=0)
-    X_tsne = tsne.fit_transform(features)
-
-    x_min, x_max = np.min(X_tsne, 0), np.max(X_tsne, 0)
-    X_tsne = (X_tsne - x_min) / (x_max - x_min)  # scale to interval (0, 1)
-
-    # print out 10 randomly chosen board states with positions and state-values
-    # and mark choice in embedding
-    choice = np.random.choice(len(boards), 10, replace=False)
-    for i, c in enumerate(choice):
-        print(i, c)
-        print(X_tsne[c])
-        print(state_values[c])
-        print_board(boards[c], same_figure=False)
-        # plt.title("state value: {}, spatial: {}".format(state_values[c], X_tsne[c]))
-        plt.savefig("{}{}.png".format(env_name, i))
-
-    def plot_embedding(features, values, choice):
-        """
-        Plot an embedding
-        :param features: vectors to be plotted
-        :param values: value between 0 and 1 for respective color (e.g. state-value)
-        :return: plot
-        """
-        fig, ax = plt.subplots()
-        mymap = plt.cm.get_cmap("Spectral")
-        sm = plt.cm.ScalarMappable(cmap=mymap, norm=plt.Normalize(vmin=0, vmax=1))
-        sm._A = []  # fake array for scalar mappable urrgh..
-        for i in range(features.shape[0]):
-            plt.plot(features[i, 0], features[i, 1], ".", color=mymap(values[i]))
-        cb = plt.colorbar(sm)
-        cb.set_label("Q-Values")
-        for i in range(features.shape[0]):  # overwrite old plotted points
-            if i in choice:
-                plt.plot(features[i, 0], features[i, 1], "o", color="k")
-        plt.xticks([]), plt.yticks([])
-        plt.title("t-SNE of Board Evaluator Features")
-        plt.show(block=False)
-
-    print("Plotting t-SNE embedding")
-    plot_embedding(X_tsne, state_values, choice)
-    plt.savefig("{}-tsne.png".format(env_name))
-
-
 @dataclass
 class RollingMeter(object):
     """
@@ -225,3 +140,72 @@ class RollingMeter(object):
         self.max = max(self.max, val)
         self.min = min(self.min, val)
         self.count += n
+
+
+class SumTree:
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.size = 0
+        self.leaf_pos = 0
+        # build a flattened binary tree
+        self.leaf_level = int(np.ceil(np.log2(capacity)) + 1)
+        # tree holds the priority values
+        self.prioritree = np.zeros(2 ** self.leaf_level - 1)
+        # values holds the actual data entries
+        self.values = np.full(capacity, np.nan, dtype=object)
+
+    def __len__(self):
+        return self.size
+
+    def sum(self):
+        return self.prioritree[0]
+
+    def insert(self, value, priority: float):
+        # write the new value to the data list and update the priority of the tree path
+        self.values[self.leaf_pos] = value
+        self.update(2 ** (self.leaf_level - 1) - 1 + self.leaf_pos, priority)
+
+        self.leaf_pos += 1
+        self.leaf_pos %= self.capacity
+        self.size = min(self.size + 1, self.capacity)
+
+    def update(self, idx: int, priority: float):
+        delta = priority - self.prioritree[idx]
+        self.prioritree[idx] = priority
+        while idx != 0:
+            idx = (idx - 1) // 2
+            self.prioritree[idx] += delta
+
+    def get(self, priority: float, percentage: bool = True):
+        """
+        Return the value and associated corresponding to the given priority.
+
+        Traverses the tree from top to bottom checking if the priority is found in the left subtree or in the right
+        subtree. The recursion breaks once the a leaf is found (<==> the left child's idx would exceed the capacity)
+        """
+        if percentage:
+            priority *= self.prioritree[0]
+        idx = 0
+        breaking_idx = 2 ** (self.leaf_level - 1) - 1
+        while True:
+            left_idx = 2 * idx + 1
+            if priority <= self.prioritree[left_idx]:
+                idx = left_idx
+            else:
+                idx = left_idx + 1  # the right child's idx
+                priority -= self.prioritree[left_idx]
+
+            if (value_idx := idx - breaking_idx) >= 0:
+                return value_idx, self.values[value_idx], self.prioritree[idx]
+
+    def as_str(self):
+        out = [[]]
+        level = 1
+        curr_elems = 2 ** level - 1
+        for i in range(self.prioritree.shape[0]):
+            out[level - 1].append(str(self.prioritree[i]))
+            if i + 1 == curr_elems:
+                out.append([])
+                level += 1
+                curr_elems = 2 ** level - 1
+        return "\n".join([" ".join(stage) for stage in out])

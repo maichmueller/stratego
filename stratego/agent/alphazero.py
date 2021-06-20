@@ -1,9 +1,9 @@
-from stratego.agent import RLAgent
-from stratego.engine import Team, State
+from stratego.agent import DRLAgent
+from stratego.core import Team, State
 from stratego.learning import PolicyMode
 
 
-class AZAgent(RLAgent):
+class AlphaZeroAgent(DRLAgent):
     """
     AlphaZero agent. Estimates policy and value with its model.
     """

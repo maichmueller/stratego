@@ -1,4 +1,4 @@
-from stratego.engine import (
+from stratego.core import (
     Team,
     Piece,
     Obstacle,

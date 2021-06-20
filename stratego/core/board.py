@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import operator
-from typing import Optional
+from copy import deepcopy
+from typing import Optional, Tuple, Sequence
 
 from .game_defs import Token
 from .piece import ShadowPiece, Piece, Team, Obstacle
@@ -14,7 +15,12 @@ import matplotlib.pyplot as plt
 
 
 class Board(np.ndarray):
-    def __new__(cls, arr: np.ndarray, **kwargs):
+
+    def __new__(cls, arr_or_shape: np.ndarray, **kwargs):
+        if isinstance(arr_or_shape, Sequence):
+            arr = np.empty(arr_or_shape, dtype=object)
+        else:
+            arr = arr_or_shape
         obj = super().__new__(
             cls, shape=arr.shape, buffer=arr, dtype=arr.dtype, **kwargs
         )
@@ -148,37 +154,6 @@ class Board(np.ndarray):
 
         return figure, ax
 
-    def get_info_board(self, player: Team) -> Board:
-        """
-        Slice the current board and extract the information board the given player can have,
-        i.e. the board with all the information this player has.
-
-        Parameters
-        ----------
-        player: Team,
-            the player whose information is to be mapped
-
-        Returns
-        -------
-        Board,
-            the information board
-        """
-        info_board = Board(np.ndarray(self.shape, dtype=object))
-        opponent = player.opponent()
-        for piece in self.flatten():
-            if piece is not None:
-                if isinstance(piece, Obstacle) or piece.team != opponent:
-                    info_board[piece.position] = piece
-                else:
-                    if piece.hidden:
-                        info_board[piece.position] = ShadowPiece(
-                            piece.position, opponent
-                        )
-                    else:
-                        info_board[piece.position] = piece
-
-        return info_board
-
     @singledispatchmethod
     def __getitem__(self, item):
         # whenever np.ndarray knows how to handle the type, we let it
@@ -198,3 +173,33 @@ class Board(np.ndarray):
     def _(self, key: Position, value):
         # for our custom position type
         return super().__setitem__((key.x, key.y), value)
+
+
+class InfoBoard(Board):
+    """
+    An InfoBoard is meant to represent the information the given player has on the provided board.
+    It replaces all hidden pieces with ShadowPieces.
+    """
+    def __new__(cls, board: Board, player: Team, **kwargs):
+        obj = super().__new__(
+            cls, deepcopy(board), **kwargs
+        )
+        return obj
+
+    def __init__(self, board: Board, team: Team):
+        """
+        Slice the current board down to the information available
+
+        Parameters
+        ----------
+        board: Board,
+            the board to slice
+        team: Team,
+            the player whose information is to be mapped
+        """
+        super().__init__(board, team)
+        self.perspective = team
+        opponent = team.opponent()
+        for piece in self.flatten():
+            if piece is not None and piece.team == opponent and piece.hidden:
+                self[piece.position] = ShadowPiece(piece)

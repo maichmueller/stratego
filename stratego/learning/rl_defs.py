@@ -35,13 +35,15 @@ DQNMemory = namedtuple("DQNMemory", "state, action, next_state, reward")
 AlphaZeroMemory = namedtuple("AlphaZeroMemory", "state, pi, value, player")
 
 
-class ReplayContainer:
+class Experience:
     """
     Replay Memory for played states.
     Stores the content-tuple specified on creation.
     """
 
-    def __init__(self, capacity, memory_class, rng_state: Optional[np.random.Generator] = None):
+    def __init__(
+        self, capacity, memory_class, rng_state: Optional[np.random.Generator] = None
+    ):
         self.capacity = capacity
         self.memory = []
         self.position = 0
@@ -65,9 +67,10 @@ class ReplayContainer:
     def sample(self, batch_size):
         return self.rng.choice(self.memory, batch_size, replace=False)
 
-    def extend(self, replays: ReplayContainer):
+    def extend(self, replays: Experience):
         for replay in replays:
             self.push(*replay)
+
 
 
 class ExplorationScheduler(ABC):

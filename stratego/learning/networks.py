@@ -1,4 +1,6 @@
 from abc import ABC
+from copy import deepcopy
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -6,20 +8,7 @@ import torch.nn.functional as F
 import os
 
 
-class NetworkWrapper(torch.nn.Module, ABC):
-    def __init__(
-        self,
-        network: torch.nn.Module,
-        device="cpu",
-    ):
-        super().__init__()
-        self.network = network
-        self.device = device
-        network.to(device)
-
-    def to(self, device: str = "cpu"):
-        self.device = device
-        self.network.to(device)
+class Network(torch.nn.Module, ABC):
 
     @torch.no_grad()
     def predict(self, board):
@@ -27,7 +16,7 @@ class NetworkWrapper(torch.nn.Module, ABC):
         board: np array with board
         """
         self.eval()
-        pi, v = self.network(board)
+        pi, v = self(board)
 
         return torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0]
 
@@ -35,7 +24,7 @@ class NetworkWrapper(torch.nn.Module, ABC):
         filepath = os.path.join(folder, filename)
         if not os.path.exists(folder):
             print(
-                "Checkpoint Directory does not exist! Making directory {}".format(
+                "Checkpoint Directory does not exist. Making directory {}".format(
                     folder
                 )
             )
@@ -174,7 +163,7 @@ class FC(nn.Module):
         return x
 
 
-class PolicyValueNet(nn.Module):
+class PolicyValueNet(Network):
     def __init__(
         self,
         policy_dim: int,
@@ -214,3 +203,69 @@ class PolicyValueNet(nn.Module):
         v = self.value_layer(x)  # batch_size x 1
 
         return F.log_softmax(pi, dim=1), torch.tanh(v)
+
+
+class DQN(Network):
+    """
+
+    References
+    ----------
+    [1] Wang, Ziyu, et al.
+        "Dueling network architectures for deep reinforcement learning."
+        International conference on machine learning. PMLR, 2016.
+        http://proceedings.mlr.press/v48/wangf16.pdf
+    """
+    def __init__(
+        self,
+        policy_dim: int,
+        conv_net: torch.nn.Module,
+        fc_net: torch.nn.Module,
+    ):
+        super().__init__()
+        self.conv_net = conv_net
+        self.fc_net = fc_net
+        assert hasattr(
+            fc_net, "dim_output"
+        ), "FullyConnected network must have member 'dim_output'."
+        dim_out_fc = self.fc_net.dim_output
+        self.policy_layer = nn.Linear(in_features=dim_out_fc, out_features=policy_dim)
+
+    def forward(self, x: torch.Tensor):
+        return self.policy_layer(self.fc_net(self.conv_net(x)))
+
+
+class DuelingDQN(Network):
+    """
+
+    References
+    ----------
+    [1] Wang, Ziyu, et al.
+        "Dueling network architectures for deep reinforcement learning."
+        International conference on machine learning. PMLR, 2016.
+        http://proceedings.mlr.press/v48/wangf16.pdf
+    """
+    def __init__(
+        self,
+        policy_dim: int,
+        conv_net: nn.Module,
+        fc_net: nn.Module,
+    ):
+        super().__init__()
+        self.conv_net = conv_net
+        self.fc_net1 = fc_net
+        self.fc_net2 = deepcopy(fc_net)
+        assert hasattr(
+            fc_net, "dim_output"
+        ), "FullyConnected network must have member 'dim_output'."
+        assert hasattr(
+            fc_net, "dim_input"
+        ), "FullyConnected network must have member 'dim_input'."
+        dim_out_fc = self.fc_net.dim_output
+        self.val_layer = nn.Linear(in_features=dim_out_fc, out_features=1)
+        self.adv_layer = nn.Linear(in_features=dim_out_fc, out_features=policy_dim)
+
+    def forward(self, x: torch.Tensor):
+        x = self.conv_net(x)
+        val = self.val_layer(self.fc_net1(x))  # batch_size x 1
+        adv = self.adv_layer(self.fc_net2(x))  # batch_size x action_size
+        return val + (adv - adv.mean(1))

@@ -1,11 +1,11 @@
 from stratego.learning import RewardToken
-from stratego.engine.piece import Piece, Obstacle
+from stratego.core.piece import Piece, Obstacle
 from stratego.agent import Agent, RLAgent
-from stratego.engine.state import State
-from stratego.engine.logic import Logic
-from stratego.engine.position import Position, Move
-from stratego.engine.board import Board
-from stratego.engine.game_defs import Status, Team, HookPoint, GameSpecification
+from stratego.core.state import State
+from stratego.core.logic import Logic
+from stratego.core.position import Position, Move
+from stratego.core.board import Board
+from stratego.core.game_defs import Status, Team, HookPoint, GameSpecification
 from stratego.utils import slice_kwargs
 
 from typing import Optional, Dict, List, Sequence, Callable, Iterable, Union, Tuple
@@ -83,14 +83,14 @@ class Game:
         kwargs_print = slice_kwargs(Board.print_board, kwargs)
         kwargs_run_step = slice_kwargs(self.run_step, kwargs)
         if show:
-            # if the engine progress should be shown, then we refer to the board print method.
+            # if the core progress should be shown, then we refer to the board print method.
             def print_board():
                 self.state.board.print_board(**kwargs_print)
                 plt.pause(pause)
                 plt.show(block=block)
 
         else:
-            # if the engine progress should not be shown, then we simply pass over this step.
+            # if the core progress should not be shown, then we simply pass over this step.
             def print_board():
                 pass
 
@@ -123,7 +123,7 @@ class Game:
 
     def run_step(self, move: Optional[Move] = None) -> Status:
         """
-        Execute one step of the engine (i.e. the action decided by the active player).
+        Execute one step of the core (i.e. the action decided by the active player).
 
         Parameters
         ----------
@@ -133,7 +133,7 @@ class Game:
         Returns
         -------
         Status,
-            the current status of the engine.
+            the current status of the core.
         """
         player = self.state.active_team
         agent = self.agents[player]
@@ -187,7 +187,7 @@ class Game:
 
     def draw_board(self):
         """
-        Draw a random board according to the current engine specification.
+        Draw a random board according to the current core specification.
 
         Returns
         -------

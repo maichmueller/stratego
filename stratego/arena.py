@@ -1,6 +1,6 @@
 from typing import Dict
 
-from stratego.engine import Status, Team
+from stratego.core import Status, Team
 from stratego.utils import RollingMeter
 from .game import Game
 

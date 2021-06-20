@@ -3,6 +3,7 @@ from functools import singledispatchmethod
 from typing import Sequence, Union, Tuple
 
 import numpy as np
+from scipy import spatial
 
 
 class Position:
@@ -67,13 +68,15 @@ def _(self, pos: Position):
 
 
 class Move:
-    @singledispatchmethod
     def __init__(
         self,
         pos1: Union[Tuple[int, int], Position],
         pos2: Union[Tuple[int, int], Position],
     ):
         self.from_to = (Position(pos1), Position(pos2))
+
+    def __len__(self):
+        return spatial.distance.cityblock(self.from_to[0], self.from_to[1])
 
     @property
     def from_(self):
