@@ -1,4 +1,4 @@
-from typing import Union, Optional
+from typing import Union, Optional, Any, List, Iterable
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -29,7 +29,9 @@ def slice_kwargs(func, kwargs):
     return sliced_kwargs
 
 
-def rng_from_seed(seed: Optional[Union[int, np.random.Generator, np.random.RandomState]] = None):
+def rng_from_seed(
+    seed: Optional[Union[int, np.random.Generator, np.random.RandomState]] = None
+):
     if not isinstance(seed, np.random.Generator):
         rng = np.random.default_rng(seed)
     else:
@@ -126,6 +128,7 @@ class RollingMeter(object):
     """
     Computes and stores the average and current value
     """
+
     val: Union[int, float] = 0
     avg: Union[int, float] = 0
     sum: Union[int, float] = 0
@@ -176,12 +179,29 @@ class SumTree:
             idx = (idx - 1) // 2
             self.prioritree[idx] += delta
 
+    def priority(self, index: int):
+        """
+        Returns the priority of the value at the given index.
+
+        Parameters
+        ----------
+        index: int,
+            the index of the value
+
+        Returns
+        -------
+        float,
+            the priority
+        """
+        tree_index = 2 ** (self.leaf_level - 1) - 1 + index
+        return self.prioritree[tree_index]
+
     def get(self, priority: float, percentage: bool = True):
         """
-        Return the value and associated corresponding to the given priority.
+        Return the value corresponding to the given priority.
 
         Traverses the tree from top to bottom checking if the priority is found in the left subtree or in the right
-        subtree. The recursion breaks once the a leaf is found (<==> the left child's idx would exceed the capacity)
+        subtree. The recursion breaks once the a leaf is found
         """
         if percentage:
             priority *= self.prioritree[0]
@@ -209,3 +229,126 @@ class SumTree:
                 level += 1
                 curr_elems = 2 ** level - 1
         return "\n".join([" ".join(stage) for stage in out])
+
+
+class PERContainer(object):
+    """
+    A PRIORITIZED EXPERIENCE REPLAY container.
+    Allows for sampling according to the probability distribution defined by the contained elements' priorities.
+
+    References
+     ---------
+     .. [1] Tom Schaul, John Quan, Ioannis Antonoglou and David Silver,
+        https://arxiv.org/pdf/1511.05952.pdf .
+    """
+
+    def __init__(
+        self,
+        capacity: int,
+        alpha: float,
+        seed: Union[np.random.Generator, np.random.RandomState, int, None] = None,
+    ):
+        r"""
+        Initializes the sum tree of length ``capacity``.
+
+        Parameters
+        ----------
+        capacity : int
+            the maximum number of samples to memorize
+
+        alpha: float
+            the exponent to determine the degree of prioritization:
+
+            .. math:: P_i \sim \mathrm{prio}_i ^ \alpha / \sum_i \mathrm{prio}_i ^ \alpha
+
+            A lower :math:`\alpha` creates more uniformly distributed probability values.
+
+        """
+        self.tree = SumTree(capacity)
+        self.capacity = capacity
+        self._alpha = alpha
+        self.rng = rng_from_seed(seed)
+
+    @property
+    def alpha(self):
+        return self._alpha
+
+    @alpha.setter
+    def alpha(self, alpha: float):
+        """
+        Set the alpha parameter to a new value.
+        """
+        old_alpha = self._alpha
+        self._alpha = alpha
+        priorities = (
+            self.tree.priority(i) ** -old_alpha for i in range(len(self.tree))
+        )
+        self.update(range(len(self.tree)), priorities)
+
+    def push(self, value: Any):
+        """
+        Adds a new sample.
+
+        Parameters
+        ----------
+        value: Any,
+            the new sample value
+        """
+        self.tree.insert(value, float("inf"))
+
+    def sample(self, n: int, beta: float):
+        """
+        Samples `n` times.
+
+        Parameters
+        ----------
+        n: int,
+            the number of samples
+        beta: float,
+            the temperature parameter of the distribution
+
+        Returns
+        -------
+        out: Tuple containing
+            [
+                list of samples,
+                list of weights,
+                list of sample indices in the sum tree
+            ]
+        """
+        out = []
+        indices = []
+        weights = []
+        priorities = []
+        n_samples = min(n, len(self.tree))
+        rs = self.rng.uniform(size=n_samples)
+        for i in range(n_samples):
+            r = rs[i]
+            data, priority, index = self.tree.get(r)
+            priorities.append(priority)
+            weights.append(
+                (1.0 / self.capacity / priority) ** beta if priority > 1e-16 else 0
+            )
+            indices.append(index)
+            out.append(data)
+            self.update([index], [0])  # To avoid duplicating
+
+        self.update(indices, priorities)  # Revert priorities
+
+        weights /= max(weights)  # Normalize for stability
+
+        return out, weights, indices
+
+    def update(self, indices: Iterable[int], priorities: Iterable[float]):
+        """
+        Update each sample's priority (e.g. after an alpha change).
+
+        Parameters
+        ----------
+        indices : Iterable[int],
+            Iterable of sample indices to update
+        priorities: Iterable[float],
+            the new priorities for the given indices
+        """
+        for i, p in zip(indices, priorities):
+            self.tree.update(i, p ** self._alpha)

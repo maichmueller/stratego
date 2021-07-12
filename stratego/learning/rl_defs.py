@@ -72,7 +72,6 @@ class Experience:
             self.push(*replay)
 
 
-
 class ExplorationScheduler(ABC):
     @abstractmethod
     def __call__(self, epoch: int) -> float:
