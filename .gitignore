@@ -8,6 +8,10 @@ __pycache__/*
 checkpoints/*
 **/__pycache__/
 
-
+**/*.egg-info/**
 
 .dmypy.json
+
+cmake-build-debug/
+
+*.so
