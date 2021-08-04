@@ -3,9 +3,10 @@ from typing import Optional, TYPE_CHECKING
 
 # if TYPE_CHECKING:
 from ..core import ActionMap
-from ..agent import RLAgent, DRLAgent
+from ..agent import Agent, RLAgent, DRLAgent
 
 from ..game import Game
+from ..learning import RewardToken
 
 from copy import deepcopy
 
@@ -39,6 +40,11 @@ class RLAlgorithm(ABC):
         Train the reinforcement learning agent according to the method defined in the concrete class.
         """
         raise NotImplementedError
+
+    @staticmethod
+    def reward_agent(agent: Agent, reward: RewardToken):
+        if isinstance(agent, RLAgent):
+            agent.add_reward(reward)
 
     def _new_state(self, lock: Optional[Lock] = None):
         """

@@ -13,4 +13,4 @@ from .game_defs import (
 )
 from .position import Position, Move
 from .action import Action, ActionMap
-# from ._core import *
+from ._core import LogicCPP

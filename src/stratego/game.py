@@ -1,3 +1,4 @@
+from .core.state import InfoState
 from .learning import RewardToken
 from .core import Piece, Obstacle
 from .agent import Agent, RLAgent
@@ -142,13 +143,12 @@ class Game:
 
         if move is None:
             move = agent.decide_move(
-                self.state.get_info_state(player), logic=self.logic
+                InfoState(self.state, team=player)
             )
 
         self._trigger_hooks(HookPoint.post_move_decision, self.state, move)
 
         if not self.logic.is_legal_move(self.state.board, move):
-            self.reward_agent(agent, RewardToken.illegal)
             return Status.win_red if player == Team.blue else Status.win_blue
 
         self.state.history.commit_move(
@@ -166,14 +166,6 @@ class Game:
         self._trigger_hooks(
             HookPoint.post_move_execution, self.state, move, fight_status
         )
-
-        if fight_status is not None:
-            if fight_status == 1:
-                self.reward_agent(agent, RewardToken.kill)
-            elif fight_status == -1:
-                self.reward_agent(agent, RewardToken.die)
-            else:
-                self.reward_agent(agent, RewardToken.kill_mutually)
 
         # test if game is over
         if (status := self.logic.get_status(self.state, specs=self.specs)) != Status.ongoing:
@@ -241,8 +233,3 @@ class Game:
             board[obs_pos] = Obstacle(obs_pos)
 
         return board
-
-    @staticmethod
-    def reward_agent(agent: Agent, reward: RewardToken):
-        if isinstance(agent, RLAgent):
-            agent.add_reward(reward)

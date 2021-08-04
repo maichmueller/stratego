@@ -94,7 +94,7 @@ add_library(stratego_cpp_lib STATIC)
 set(PYBIND11_FINDPYTHON TRUE)
 find_package(pybind11 REQUIRED)
 
-add_subdirectory(src)
+include(${CMAKE_CONFIG_FOLDER}/Targets.cmake)
 
 if (SKBUILD)
     message("Building with scikit-build. Disabling Test target.")
