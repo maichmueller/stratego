@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .. import utils
+
 from abc import ABC, abstractmethod
 from enum import Enum
 
@@ -8,7 +10,6 @@ from typing import Optional
 
 import numpy as np
 
-from src.stratego import utils
 
 
 class RewardToken(Enum):

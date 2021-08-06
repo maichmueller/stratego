@@ -99,7 +99,7 @@ include(${CMAKE_CONFIG_FOLDER}/Targets.cmake)
 if (SKBUILD)
     message("Building with scikit-build. Disabling Test target.")
     # install locally so that sciki-build can correctly install it
-    install(TARGETS _core DESTINATION ./core)
+    install(TARGETS _core LIBRARY DESTINATION ./core)
 
 else ()
     if (ENABLE_TESTING)

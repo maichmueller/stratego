@@ -15,3 +15,5 @@ checkpoints/*
 cmake-build-debug/
 
 *.so
+
+_skbuild

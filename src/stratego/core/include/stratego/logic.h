@@ -4,7 +4,8 @@
 
 
 class Logic {
-
+    public:
+    Logic() = default;
 };
 
 

@@ -4,18 +4,6 @@ import sys
 import os
 import re
 
-try:
-    from skbuild import setup
-except ImportError:
-    print(
-        "Please update pip, you need pip 10 or greater,\n"
-        " or you need to install the PEP 518 requirements in pyproject.toml yourself",
-        file=sys.stderr,
-    )
-    raise
-
-from setuptools import find_packages
-
 
 def find_ver(filepath: str):
     # pattern taken from:
@@ -32,9 +20,30 @@ def find_ver(filepath: str):
     return version
 
 
+try:
+    from skbuild import setup
+except ImportError:
+    print(
+        "Please update pip, you need pip 10 or greater,\n"
+        " or you need to install the PEP 518 requirements in pyproject.toml yourself",
+        file=sys.stderr,
+    )
+    raise
+
+
+from setuptools import find_packages
+# from setuptools import setup
+
+
 setup(
     version=find_ver(os.path.join(".", "CHANGELOG.md")),
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     cmake_install_dir="src/stratego",
 )
+
+# setup(
+#     version=find_ver(os.path.join(".", "CHANGELOG.md")),
+#     packages=find_packages(where="src"),
+#     package_dir={"": "src"},
+# )

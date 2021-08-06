@@ -1,5 +1,5 @@
-from src.stratego.agent import RandomAgent
-from stratego import Game
+from stratego.agent import RandomAgent
+from stratego.game import Game
 import matplotlib.pyplot as plt
 import numpy as np
 

@@ -11,7 +11,7 @@ import torch
 from collections import defaultdict
 from abc import ABC
 
-from stratego.core import (
+from ..core import (
     State,
     Logic,
     Team,
@@ -26,7 +26,7 @@ from stratego.core import (
     ShadowPiece,
     Token,
 )
-from src.stratego.learning import (
+from ..learning import (
     RewardToken,
     Representation,
     PolicyMode,
