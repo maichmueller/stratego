@@ -5,6 +5,7 @@ include(cmake/StandardProjectSettings.cmake)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall")
 if (APPLE)
     set(CMAKE_CXX_COMPILER /usr/bin/g++)
 endif ()
@@ -78,40 +79,15 @@ run_conan()
 include(${PROJECT_BINARY_DIR}/conanbuildinfo.cmake)
 include(${CMAKE_BINARY_DIR}/conan_paths.cmake)
 
-set(STRATEGO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/stratego")
-set(STRATEGO_SRC_DIR "${STRATEGO_DIR}/core/impl")
-set(STRATEGO_INCLUDE_DIR ${STRATEGO_DIR}/core/include)
-
-message(STATUS "STRATEGO project directory: ${STRATEGO_DIR}")
-message(STATUS "STRATEGO include directory: ${STRATEGO_INCLUDE_DIR}")
-message(STATUS "STRATEGO src directory: ${STRATEGO_SRC_DIR}")
-
-add_library(stratego_cpp_lib STATIC)
-
 # this could be used:
-#find_package(Python COMPONENTS Interpreter Development)
+# find_package(Python COMPONENTS Interpreter Development)
 # but better to just let pybind11 do it:
 set(PYBIND11_FINDPYTHON TRUE)
-find_package(pybind11 REQUIRED)
-
-include(${CMAKE_CONFIG_FOLDER}/Targets.cmake)
 
 if (SKBUILD)
-    message("Building with scikit-build. Disabling Test target.")
-    # install locally so that sciki-build can correctly install it
-    install(TARGETS _core LIBRARY DESTINATION ./core)
-
+    find_package(pybind11 CONFIG PATHS ${pybind11_SEARCH_PATH} REQUIRED)
 else ()
-    if (ENABLE_TESTING)
-        enable_testing()
-        message(
-                "Building Tests."
-        )
-        add_subdirectory(test)
-    endif ()
-
-    # in order to use the latest build of the library for a development package install (pip install . -e),
-    # we have to install it in the package folder, where it is used
-    install(TARGETS _core LIBRARY DESTINATION ${STRATEGO_DIR}/core)
+    find_package(pybind11 REQUIRED)
 endif ()
 
+include(${CMAKE_CONFIG_FOLDER}/Targets.cmake)

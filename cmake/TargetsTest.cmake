@@ -1,8 +1,13 @@
 
 find_package("GTest")
 
+set(STRATEGO_TEST_FOLDER "${CMAKE_SOURCE_DIR}/tests")
+
 set(TEST_SOURCES
-        tests.cpp)
+        tests.cpp
+        )
+
+list(TRANSFORM TEST_SOURCES PREPEND "${STRATEGO_TEST_FOLDER}/cpp/")
 
 add_executable(tests ${TEST_SOURCES})
 
@@ -13,13 +18,14 @@ set_target_properties(tests PROPERTIES
         )
 
 target_include_directories(tests PRIVATE
-        ${STRATEGO_INCLUDE_DIR}
+        ${STRATEGO_INCLUDE_DIRS}
         ${CONAN_INCLUDE_DIRS_GTEST}
-        ${CONAN_INCLUDE_DIRS_PYBIND11}
-        ${Python_INCLUDE_DIRS})
+        ${CONAN_INCLUDE_DIRS_PYBIND11})
 
 target_link_libraries(tests PRIVATE
-        stratego_cpp_lib
+        # stratego libs
+        core_lib
+        # dependencies
         CONAN_PKG::gtest
         pybind11::embed
         ${Python_LIBRARIES})

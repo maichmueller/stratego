@@ -1,5 +1,6 @@
 from __future__ import print_function
 
+from setuptools import find_packages
 import sys
 import os
 import re
@@ -31,8 +32,11 @@ except ImportError:
     raise
 
 
-from setuptools import find_packages
-# from setuptools import setup
+try:
+    import pybind11
+    pybind11_path = pybind11.get_cmake_dir()
+except ImportError as e:
+    raise e
 
 
 setup(
@@ -40,10 +44,7 @@ setup(
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     cmake_install_dir="src/stratego",
+    cmake_args=[f"-D{arg}={value}" for arg, value in {"pybind11_SEARCH_PATH": pybind11_path}],
+    zip_safe=False,
+    include_package_data=True
 )
-
-# setup(
-#     version=find_ver(os.path.join(".", "CHANGELOG.md")),
-#     packages=find_packages(where="src"),
-#     package_dir={"": "src"},
-# )
