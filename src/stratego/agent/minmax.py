@@ -30,7 +30,7 @@ class MinMax(Agent):
         # the matrix table for deciding battle outcomes between two pieces
         self.battleMatrix = utils.get_bm()
 
-    def decide_move(self, state, logic: Logic = Logic()):
+    def decide_move(self, state, logic: Logic):
         """
         Depending on the amount of enemy pieces left, we are entering the start, mid or endgame
         and planning through the minimax algorithm.

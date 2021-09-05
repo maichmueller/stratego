@@ -54,7 +54,7 @@ class Agent(ABC):
     def setup(self, info_board: InfoBoard):
         pass
 
-    def decide_move(self, state: State, logic: Logic = Logic()) -> Move:
+    def decide_move(self, state: State, logic: Logic) -> Move:
         """
         Decide the move to make for the given state of the game.
 
@@ -64,7 +64,7 @@ class Agent(ABC):
         state: State,
             the state on which the decision is to be made.
         logic: Logic,
-            the logic to use in the core. Can be changed to vary the game mode if desirable.
+            the logic to use in the core. Can be changed to vary the game mode if necessary.
 
         Returns
         -------

@@ -23,7 +23,7 @@ class RandomAgent(Agent):
                 f"Value of seed {type(seed)} not accepted as seed parameter."
             )
 
-    def decide_move(self, state: State, logic: Logic = Logic()):
+    def decide_move(self, state: State, logic: Logic):
         all_moves = list(logic.possible_moves_iter(state.board, self.team))
         if not all_moves:
             return None

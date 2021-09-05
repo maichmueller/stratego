@@ -1,7 +1,10 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(STRATEGO VERSION 0.1 LANGUAGES CXX)
-include(cmake/StandardProjectSettings.cmake)
+project(STRATEGO LANGUAGES CXX)
+
+set(CMAKE_CONFIG_FOLDER "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+include(${CMAKE_CONFIG_FOLDER}/StandardProjectSettings.cmake)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
@@ -21,7 +24,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES ".*Clang")
     endif ()
 endif ()
 
-set(CMAKE_CONFIG_FOLDER "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
 
 # Set this path if the conan install is not in the standard directory
 # This doesn't work due to a conan internal error when conan is not found in the standard directory (/usr/bin on linux)
@@ -68,6 +71,9 @@ if (ENABLE_PCH)
     target_precompile_headers(project_options
             INTERFACE <vector> <string> <map> <utility> <memory> <array> <list> <stack>)
 endif ()
+
+
+option(ENABLE_TESTING "Enable Building Tests" ON)
 
 # Set up some extra Conan dependencies based on our needs
 # before loading Conan

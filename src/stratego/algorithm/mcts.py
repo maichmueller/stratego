@@ -21,9 +21,9 @@ class MCTS:
         self,
         network: torch.nn.Module,
         action_map: ActionMap,
+        logic: Logic,
         cpuct: float = 4.0,
         n_mcts_sims: int = 100,
-        logic: Logic = Logic(),
     ):
         self.network = network
         self.action_map = action_map

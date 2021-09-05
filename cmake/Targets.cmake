@@ -70,7 +70,7 @@ else ()
         message(
                 "Building Tests."
         )
-        include(cmake/TargetsTest.cmake)
+        include(${CMAKE_CONFIG_FOLDER}/TargetsTest.cmake)
     endif ()
 
     # in order to use the latest build of the library for a development package install (pip install . -e),
