@@ -90,8 +90,8 @@ include(${CMAKE_BINARY_DIR}/conan_paths.cmake)
 # but better to just let pybind11 do it:
 set(PYBIND11_FINDPYTHON TRUE)
 
-if (SKBUILD)
-    find_package(pybind11 CONFIG PATHS ${pybind11_SEARCH_PATH} REQUIRED)
+if (SKBUILD OR DEFINED pybind11_path)
+    find_package(pybind11 CONFIG PATHS ${pybind11_path} REQUIRED)
 else ()
     find_package(pybind11 REQUIRED)
 endif ()

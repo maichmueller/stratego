@@ -44,7 +44,7 @@ setup(
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     cmake_install_dir="src/stratego",
-    cmake_args=[f"-D{arg}={value}" for arg, value in {"pybind11_SEARCH_PATH": pybind11_path}],
+    cmake_args=[f"-D{arg}={value}" for arg, value in {"pybind11_path": pybind11_path}],
     zip_safe=False,
     include_package_data=True
 )
