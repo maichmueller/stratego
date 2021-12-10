@@ -94,7 +94,7 @@ class Representation:
         self.filters = filters
         self.state_rep_dim = len(self.filters)
 
-    def state_to_tensor(self, state: State, perspective: Team = Team.blue):
+    def state_to_tensor(self, state: State, perspective: Team = Team.blue) -> np.ndarray:
         """
         Convert the state object into a pytorch Tensor according to the filters.
 
@@ -107,7 +107,7 @@ class Representation:
 
         Returns
         -------
-        torch.Tensor,
+        np.ndarray,
             the converted state object as tensor.
         """
         raise NotImplementedError
@@ -135,5 +135,4 @@ class DefaultRepresentation(Representation):
             for pos, piece in np.ndenumerate(board):
                 if check(piece):
                     board_state[(0, i) + pos.coords] = 1
-        board_state = torch.tensor(board_state)
         return board_state

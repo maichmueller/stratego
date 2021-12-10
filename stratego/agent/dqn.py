@@ -13,7 +13,7 @@ from stratego.learning import PolicyMode
 
 class DQNAgent(DRLAgent):
     """
-    Deep-Q Network agent. Estimates Q values in its model with double learning.
+    Deep-Q Network agent..
     """
 
     def __init__(self, *args, **kwargs):

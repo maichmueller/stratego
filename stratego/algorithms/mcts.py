@@ -17,13 +17,21 @@ class MCTS:
     This class handles the MCTS algorithm.
     """
 
+    # def __init__(
+    #     self,
+    #     network: torch.nn.Module,
+    #     action_map: ActionMap,
+    #     cpuct: float = 4.0,
+    #     n_mcts_sims: int = 100,
+    #     logic: Logic = Logic(),
+    # ):
     def __init__(
-        self,
-        network: torch.nn.Module,
-        action_map: ActionMap,
-        cpuct: float = 4.0,
-        n_mcts_sims: int = 100,
-        logic: Logic = Logic(),
+            self,
+            network: torch.nn.Module,
+            action_map: ActionMap,
+            cpuct: float = 4.0,
+            n_mcts_sims: int = 100,
+            logic: Logic = Logic(),
     ):
         self.network = network
         self.action_map = action_map
@@ -75,7 +83,7 @@ class MCTS:
 
         for i in range(self.n_mcts_sims):
             value = self.search(deepcopy(state), agent, perspective=perspective)
-            assert value != float("inf"), "Computed state value is infinite."
+            assert value != float("inf"), "MCTS estimated state value is infinite."
 
         if perspective != Team.blue and not state.flipped_teams:
             # ensure the chosen perspective is seen as team blue
