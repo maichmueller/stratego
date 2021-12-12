@@ -1,11 +1,12 @@
 import math
 from copy import deepcopy
-from typing import Sequence, Tuple, Dict, List, Optional
+from typing import Sequence, Tuple, Dict, List, Optional, Callable
 
 import torch
 
 import numpy as np
 
+from stratego.learning import Representation
 from stratego.agent import RLAgent
 from stratego.core import ActionMap, Logic, Status, Team, State
 
@@ -27,24 +28,28 @@ class MCTS:
     # ):
     def __init__(
             self,
-            network: torch.nn.Module,
+            evaluator: Callable[[np.ndarray], np.ndarray],
+            # OPTIONAL opponent model: Could be either of
+            # a) full policy evaluator, b) action choice returner.
+            # If None, self-play is assumed.
+            opp_evaluator: Optional[Callable[[np.ndarray], np.ndarray], ],
+            representer: Representation,
             action_map: ActionMap,
             cpuct: float = 4.0,
             n_mcts_sims: int = 100,
             logic: Logic = Logic(),
     ):
-        self.network = network
+        self.evaluator = evaluator
+        self.representer = representer
         self.action_map = action_map
         self.logic = logic
         self.cpuct = cpuct
         self.n_mcts_sims = max(1, n_mcts_sims)
 
         self.Qsa: Dict[Tuple[str, int], float] = {}  # stores Q values for (s, a)
-        self.Nsa: Dict[
-            Tuple[str, int], int
-        ] = {}  # stores #times edge (s, a) was visited
+        self.Nsa: Dict[Tuple[str, int], int] = {}  # stores #times edge (s, a) was visited
         self.Ns: Dict[str, float] = {}  # stores #times board s was visited
-        self.Ps: Dict[str, np.ndarray] = {}  # stores policy (returned by neural net)
+        self.Ps: Dict[str, np.ndarray] = {}  # stores policy (returned by evaluator)
 
         self.Es: Dict[str, Status] = {}  # stores game end status for state s
         self.Vs: Dict[str, np.ndarray] = {}  # stores valid moves for state s
@@ -287,7 +292,7 @@ class MCTS:
         return best_action
 
     def _fill_leaf_node(self, state: State, s: str, agent: RLAgent):
-        policy, value = self.network.predict(
+        policy, value = self.evaluator.predict(
             agent.state_to_tensor(state, perspective=Team.blue)
         )
         actions_mask = self.action_map.actions_mask(state.board, agent.team, self.logic)
