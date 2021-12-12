@@ -237,7 +237,7 @@ class DRLAgent(RLAgent, ABC):
         """
         if perspective is None:
             perspective = self.team
-        return self.representation.state_to_tensor(state, perspective)
+        return self.representation.__call__(state, perspective)
 
 
 class MCAgent(Agent, ABC):

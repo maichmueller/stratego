@@ -340,7 +340,7 @@ class OmniscientHeuristic(OmniscientMinMax):
         self.evaluator = Stratego(team)
 
     def get_network_reward(self):
-        state = self.evaluator.state_to_tensor()
+        state = self.evaluator.__call__()
         self.evaluator.model.eval()
         state_action_values = self.evaluator.model(torch.tensor(state)).data.numpy()
         return np.max(state_action_values)
@@ -371,7 +371,7 @@ class Heuristic(MinMax):
         self.evaluator = Stratego(team)
 
     def get_network_reward(self):
-        state = self.evaluator.state_to_tensor()
+        state = self.evaluator.__call__()
         self.evaluator.model.eval()
         state_action_values = self.evaluator.model(torch.tensor(state)).data.numpy()
         return np.max(state_action_values)
@@ -519,7 +519,7 @@ class MonteCarloHeuristic(MonteCarlo):
         self.evaluator = Stratego(team)
 
     def get_network_reward(self):
-        state = self.evaluator.state_to_tensor()
+        state = self.evaluator.__call__()
         self.evaluator.model.eval()
         state_action_values = self.evaluator.model(torch.tensor(state)).data.numpy()
         return np.max(state_action_values)

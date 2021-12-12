@@ -94,7 +94,7 @@ class Representation:
         self.filters = filters
         self.state_rep_dim = len(self.filters)
 
-    def state_to_tensor(self, state: State, perspective: Team = Team.blue) -> np.ndarray:
+    def __call__(self, state: State, perspective: Team = Team.blue) -> np.ndarray:
         """
         Convert the state object into a pytorch Tensor according to the filters.
 
@@ -126,7 +126,7 @@ class DefaultRepresentation(Representation):
             },
         )
 
-    def state_to_tensor(self, state: State, perspective: Team = Team.blue):
+    def __call__(self, state: State, perspective: Team = Team.blue):
         board = state.board
         board_state = np.zeros(
             (1, self.state_rep_dim, board.shape[0], board.shape[1])

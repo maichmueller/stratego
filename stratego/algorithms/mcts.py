@@ -1,6 +1,6 @@
 import math
 from copy import deepcopy
-from typing import Sequence, Tuple, Dict, List, Optional, Callable
+from typing import Sequence, Tuple, Dict, List, Optional, Callable, Union
 
 import torch
 
@@ -8,7 +8,7 @@ import numpy as np
 
 from stratego.learning import Representation
 from stratego.agent import RLAgent
-from stratego.core import ActionMap, Logic, Status, Team, State
+from stratego.core import Action, ActionMap, Logic, Status, Team, State
 
 EPS = 1e-8
 
@@ -18,44 +18,73 @@ class MCTS:
     This class handles the MCTS algorithm.
     """
 
-    # def __init__(
-    #     self,
-    #     network: torch.nn.Module,
-    #     action_map: ActionMap,
-    #     cpuct: float = 4.0,
-    #     n_mcts_sims: int = 100,
-    #     logic: Logic = Logic(),
-    # ):
+    Qsa: Dict[Tuple[str, int], float]  # stores Q values for (s, a)
+    Nsa: Dict[Tuple[str, int], int]  # stores #times edge (s, a) was visited
+    Ns: Dict[str, float]  # stores #times board s was visited
+    Ps: Dict[str, np.ndarray]  # stores policy (returned by evaluator)
+
+    Ts: Dict[str, Status]  # stores game end status for state s (terminality)
+    Ls: Dict[str, np.ndarray]  # stores legal moves for state s
+
     def __init__(
-            self,
-            evaluator: Callable[[np.ndarray], np.ndarray],
-            # OPTIONAL opponent model: Could be either of
-            # a) full policy evaluator, b) action choice returner.
-            # If None, self-play is assumed.
-            opp_evaluator: Optional[Callable[[np.ndarray], np.ndarray], ],
-            representer: Representation,
-            action_map: ActionMap,
-            cpuct: float = 4.0,
-            n_mcts_sims: int = 100,
-            logic: Logic = Logic(),
+        self,
+        evaluator: Callable[[np.ndarray], np.ndarray],
+        opp_evaluator: Union[
+            Callable[[np.ndarray], np.ndarray], Callable[[np.ndarray], Action]
+        ],
+        representer: Representation,
+        action_map: ActionMap,
+        cuct: float = 4.0,
+        n_mcts_sims: int = 100,
+        logic: Logic = Logic(),
     ):
+        """
+
+        Parameters
+        ----------
+        evaluator: Callable[[np.ndarray], np.ndarray],
+            the main evaluator of states to policies. The states are given as numpy arrays and the returned policy is
+            expected to be a numpy array as well.
+        opp_evaluator: Callable[[np.ndarray], np.ndarray] or Callable[[np.ndarray], Action],
+            In the first case a Callable evaluating a state tensor to a full policy,
+            In the second case a Callable evaluating a state tensor to return an action choice.
+            For self-play, pass in the same callable as for evaluator.
+        representer: Representation,
+            the state representation method. Converts state objects to appropriate state tensors.
+        action_map: ActionMap,
+            the mapping of indices to actions.
+        cuct: float,
+            the exploration constant of the UCT algorithm. Common values lie between sqrt(2) to 4. Higher values prefer
+            greater exploration in the action selection of MCTS.
+        n_mcts_sims: int,
+            the number of mcts simulations to run.
+        logic: Logic,
+            the underlying Stratego game logic object.
+        """
         self.evaluator = evaluator
+        self.opp_evaluator = opp_evaluator
         self.representer = representer
         self.action_map = action_map
         self.logic = logic
-        self.cpuct = cpuct
+        self.cuct = cuct
         self.n_mcts_sims = max(1, n_mcts_sims)
 
-        self.Qsa: Dict[Tuple[str, int], float] = {}  # stores Q values for (s, a)
-        self.Nsa: Dict[Tuple[str, int], int] = {}  # stores #times edge (s, a) was visited
-        self.Ns: Dict[str, float] = {}  # stores #times board s was visited
-        self.Ps: Dict[str, np.ndarray] = {}  # stores policy (returned by evaluator)
+        self.reset_tree()
 
-        self.Es: Dict[str, Status] = {}  # stores game end status for state s
-        self.Vs: Dict[str, np.ndarray] = {}  # stores valid moves for state s
+    def reset_tree(self):
+        self.Qsa = {}
+        self.Nsa = {}
+        self.Ns = {}
+        self.Ps = {}
+        self.Ts = {}
+        self.Ls = {}
 
     def policy(
-        self, state: State, agent: RLAgent, perspective: Optional[Team] = None, temperature: float = 1.0
+        self,
+        state: State,
+        agent: RLAgent,
+        perspective: Optional[Team] = None,
+        temperature: float = 1.0,
     ) -> np.ndarray:
         """
         This function performs n_mcts_sims simulations of MCTS starting from the given
@@ -97,10 +126,7 @@ class MCTS:
         s = str(state)
 
         counts = np.array(
-            [
-                self.Nsa[(s, a)] if (s, a) in self.Nsa else 0
-                for a in self.action_map
-            ]
+            [self.Nsa[(s, a)] if (s, a) in self.Nsa else 0 for a in self.action_map]
         )
 
         if state.flipped_teams:
@@ -118,7 +144,9 @@ class MCTS:
         policy = counts / counts.sum()
         return policy
 
-    def search(self, state: State, agent: RLAgent, perspective: Team, logic: Logic = Logic()):
+    def search(
+        self, state: State, agent: RLAgent, perspective: Team, logic: Logic = Logic()
+    ):
         """
         This function performs one iteration of MCTS. It iterates, until a leaf node is found.
         The action chosen at each node is one that has the maximum upper confidence bound as
@@ -165,12 +193,12 @@ class MCTS:
             else:
                 value_sign = 1
 
-            if s not in self.Es:
-                self.Es[s] = logic.get_status(state)
+            if s not in self.Ts:
+                self.Ts[s] = logic.get_status(state)
 
-            if self.Es[s] != Status.ongoing:
+            if self.Ts[s] != Status.ongoing:
                 # terminal node
-                value = self.Es[s].value
+                value = self.Ts[s].value
                 break
             elif s not in self.Ps:
                 # leaf node
@@ -179,7 +207,7 @@ class MCTS:
             else:
                 # has not reached a leaf or terminal node yet, so keep searching
                 # by playing according to the current policy
-                valids = self.Vs[s]
+                valids = self.Ls[s]
                 policy = self.Ps[s]
                 if root:
                     policy = self._make_policy_noisy(policy, valids)
@@ -232,17 +260,17 @@ class MCTS:
         # get string representation of state
         s = str(state)
 
-        if s not in self.Es:
-            self.Es[s] = logic.get_status(state)
-        if self.Es[s] != Status.ongoing:
+        if s not in self.Ts:
+            self.Ts[s] = logic.get_status(state)
+        if self.Ts[s] != Status.ongoing:
             # terminal node
-            return -self.Es[s].value
+            return -self.Ts[s].value
 
         if s not in self.Ps:
             # leaf node
             return -self._fill_leaf_node(state, s, agent)
 
-        valids = self.Vs[s]
+        valids = self.Ls[s]
         policy = self.Ps[s]
         if root:
             policy = self._make_policy_noisy(policy, valids)
@@ -280,11 +308,11 @@ class MCTS:
         for a in np.where(valid_actions)[0]:
             a = self.action_map[a]
             if (s, a) in self.Qsa:
-                u = self.Qsa[(s, a)] + self.cpuct * policy[a] * math.sqrt(
-                    self.Ns[s]
-                ) / (1 + self.Nsa[(s, a)])
+                u = self.Qsa[(s, a)] + self.cuct * policy[a] * math.sqrt(self.Ns[s]) / (
+                    1 + self.Nsa[(s, a)]
+                )
             else:
-                u = self.cpuct * policy[a] * math.sqrt(self.Ns[s] + EPS)
+                u = self.cuct * policy[a] * math.sqrt(self.Ns[s] + EPS)
 
             if u > cur_best:
                 cur_best = u
@@ -292,13 +320,13 @@ class MCTS:
         return best_action
 
     def _fill_leaf_node(self, state: State, s: str, agent: RLAgent):
-        policy, value = self.evaluator.predict(
-            agent.state_to_tensor(state, perspective=Team.blue)
+        policy, value = self.evaluator(
+            self.representer(state, perspective=Team.blue)
         )
         actions_mask = self.action_map.actions_mask(state.board, agent.team, self.logic)
         policy = policy * actions_mask  # masking invalid moves
         self.Ps[s] = policy / policy.sum()  # normalize to get probabilities
-        self.Vs[s] = actions_mask
+        self.Ls[s] = actions_mask
         self.Ns[s] = 0
         return value
 
