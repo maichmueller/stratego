@@ -154,7 +154,7 @@ class MCTS:
             policy = counts / counts.sum()
         return policy
 
-    def search(self, state: State, perspective: Team, logic: Logic = Logic()):
+    def search(self, state: State, perspective: Team):
         """
         This function performs one iteration of MCTS. It iterates, until a leaf node is found.
         The action chosen at each node is one that has the maximum upper confidence bound as
@@ -183,15 +183,15 @@ class MCTS:
             value_sign = self._get_value_sign(state, perspective)
 
             if s not in self.Ts:
-                self.Ts[s] = logic.get_status(state)
+                self.Ts[s] = self.logic.get_status(state)
 
             if self.Ts[s] != Status.ongoing:
-                # terminal node
+                # s is a terminal node
                 value = self.Ts[s].value
                 break  # break out of the while loop
             elif s not in self.Ns:
-                # leaf node
-                # roll out the game to find the value of this node and propagate the value back up
+                # s is a leaf node
+                # roll out the game to add the node to the tree, find its value and propagate said value back up
                 value = self._expand(state, s, depth, perspective)
                 break  # break out of the while loop
             else:
@@ -344,7 +344,7 @@ class EvaluatorMCTS(MCTS):
         logic: Logic,
             the underlying Stratego game logic object.
         """
-        super(EvaluatorMCTS, self).__init__(action_map=action_map, rng=rng, logic=logic)
+        super().__init__(action_map=action_map, rng=rng, logic=logic)
         self.evaluator = evaluator
         self.opp_evaluator = opp_evaluator
         self.current_evaluator = None
@@ -403,8 +403,9 @@ class EvaluatorMCTS(MCTS):
             value = self.search(deepcopy(state), perspective=perspective)
             assert value != float("inf"), "MCTS estimated state value is infinite."
 
-        if perspective != Team.blue and not state.flipped_teams:
-            # ensure the chosen perspective is seen as team blue
+        if self.eval_flip and perspective != Team.blue and not state.flipped_teams:
+            # ensure the own team is seen as team blue if it is required by the algorithm. This only needs to happen if
+            # mcts is called for the red player and the current board setup is not already flipped.
             state.flip_teams()
 
         s = str(state)
@@ -421,7 +422,7 @@ class EvaluatorMCTS(MCTS):
 
         return policy
 
-    def search(self, state: State, perspective: Team, logic: Logic = Logic()):
+    def search(self, state: State, perspective: Team):
         """
         This function performs one iteration of MCTS. It iterates, until a leaf node is found.
         The action chosen at each node is one that has the maximum upper confidence bound as
@@ -438,25 +439,7 @@ class EvaluatorMCTS(MCTS):
         """
         # the evaluator of state nodes will be assigned in each iteration of the step
         self.current_evaluator = None
-        return super().search(state, perspective, logic)
-
-    def _get_value_sign(self, state, perspective):
-        if (state.active_team == perspective) == state.flipped_teams:
-            # adjust the value for the correct perspective:
-            # The value needs to always be seen from the given perspective.
-
-            # The condition is logically equivalent to:
-            #       (selected team == active player AND teams flipped)
-            #    OR (selected team != active player AND teams not flipped)
-            # This implies we are currently in an Opponent node.
-            # In these cases we need to multiply the value with -1. We also need to switch the evaluator.
-            self.current_evaluator = self.opp_evaluator
-            value_sign = -1
-        else:
-            # we are at a node of the player who initialized the MCTS tree. That team is given by 'perspective'.
-            self.current_evaluator = self.evaluator
-            value_sign = 1
-        return value_sign
+        return super().search(state, perspective)
 
     def _update_qsa(self, s: str, a: int, value: float):
         s_a = (s, a)
@@ -483,11 +466,11 @@ class EvaluatorMCTS(MCTS):
         # pick the action with the highest upper confidence bound
         cur_best = -float("inf")
         best_actions = []
-        cuct = self.config.cuct
+        cuct = self.cuct
         for a in np.where(valids)[0]:
             a = self.action_map[a]
             if (s, a) in self.Qsa:
-                u = self.Qsa[(s, a)] + cuct * policy[a] * math.sqrt(self.Ns[s]) / (
+                u = self.Qsa[(s, a)] + cuct * policy[a] * np.sqrt(self.Ns[s]) / (
                     1 + self.Nsa[(s, a)]
                 )
             else:
@@ -496,7 +479,7 @@ class EvaluatorMCTS(MCTS):
             if u > cur_best:
                 cur_best = u
                 best_actions = [a]
-            elif math.isclose(u, cur_best, rel_tol=self.EPS):
+            elif np.isclose(u, cur_best, rel_tol=self.EPS):
                 best_actions.append(a)
 
         # if there is more than one best action, select randomly
@@ -506,16 +489,25 @@ class EvaluatorMCTS(MCTS):
         self, state: State, s: str, depth: int, team: Team,
     ):
         state_tensor = self.representer(state, own_team=Team.blue)
-        policy_or_action, value = self.current_evaluator(state_tensor)
-        if isinstance(policy_or_action, np.ndarray):
-            policy = policy_or_action
-        elif isinstance(policy_or_action, int):
-            policy = np.zeros(len(self.action_map), dtype=np.float)
-            policy[policy_or_action] = 1.0
+        if state.active_team == team:
+            # it is the mcts-starting player turn
+            self.current_evaluator = self.evaluator
+            if self.eval_flip and state.active_team != Team.blue:
+                # the evaluator needs to see itself as team blue, so we flip
+                state.flip_teams()
         else:
-            raise TypeError(
-                "Returned type of policy or action from evaluator has to be a np.ndarray or int."
-            )
+            # it is the opponent's turn
+            self.current_evaluator = self.opp_evaluator
+            if self.opp_eval_flip and state.active_team != Team.blue:
+                # the opponent evaluator needs to see itself as team blue, so we flip
+                state.flip_teams()
+
+        policy, value = self.current_evaluator(state_tensor)
+
+        if state.flipped_teams:
+            # undo the flip
+            state.flip_teams()
+        
         actions_mask = self.action_map.actions_mask(state.board, team, self.logic)
         policy = policy * actions_mask  # masking invalid moves
         self.Ps[s] = policy / policy.sum()  # normalize to get probabilities
