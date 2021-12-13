@@ -13,9 +13,7 @@ import numpy as np
 
 
 class Action:
-    def __init__(
-        self, actor: Union[Tuple[Token, int], Piece], effect: Position
-    ):
+    def __init__(self, actor: Union[Tuple[Token, int], Piece], effect: Position):
         # read only actor member
         self._actor: Tuple[Token, int]
         if isinstance(actor, tuple):
@@ -79,10 +77,16 @@ class ActionMap:
 
     @__getitem__.register
     def _(self, arg: int):
+        """
+        An integer is assumed to be merely the index of the action list
+        """
         return self.actions[arg]
 
     @__getitem__.register
     def _(self, arg: tuple):
+        """
+        With a tuple we assume we are being given a tuple of (Token, Version)
+        """
         return self.actors_to_actions[arg]
 
     @__getitem__.register
@@ -90,6 +94,9 @@ class ActionMap:
         return self.actors_to_actions[arg.token, arg.version]
 
     def invert_action(self, action: Action):
+        """
+        Get the action that does the inverse of the given action, e.g. when moving up by (1,0) the inverse is (-1, 0)
+        """
         return self.actions_inverse[action]
 
     def _build_action_map(
@@ -114,9 +121,7 @@ class ActionMap:
                 actor = (token, version)
                 actors_to_actions[actor] = []
                 for (pos_before, pos_after) in moves:
-                    action = Action(
-                        (token, version), pos_after - pos_before
-                    )
+                    action = Action((token, version), pos_after - pos_before)
                     actions.append(action)
                     actors_to_actions[actor].append(action)
 
@@ -163,7 +168,12 @@ class ActionMap:
                         actions_mask[action_idx] = 1
         return actions_mask
 
-    def action_to_move(self, action: Union[int, Action], state: State, team: Team):
+    def action_to_move(
+        self,
+        action: Union[int, Action],
+        identifier_to_piece: Dict[Tuple[Token, int, Team], Piece],
+        team: Team,
+    ):
         """
         Converting an action index (0-action_dim) to a move, according to the action representation.
 
@@ -171,8 +181,8 @@ class ActionMap:
         ----------
         action: Action or int,
             index of the action in the action list or the action itself.
-        state: State,
-            the state on which to translate the action to a move.
+        identifier_to_piece: Dict[Tuple[Token, int, Team], Piece],
+            the mapping from piece identifier to the actual piece.
         team: Team,
             the team for which the action is meant.
 
@@ -182,5 +192,5 @@ class ActionMap:
         """
         if isinstance(action, int):
             action = self.actions[action]
-        piece = state.piece_by_id[action.actor + (team,)]
+        piece = identifier_to_piece[action.actor + (team,)]
         return Move(piece.position, action(piece.position))

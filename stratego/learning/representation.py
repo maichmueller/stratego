@@ -94,7 +94,7 @@ class Representation:
         self.filters = filters
         self.state_rep_dim = len(self.filters)
 
-    def __call__(self, state: State, perspective: Team = Team.blue) -> np.ndarray:
+    def __call__(self, state: State, own_team: Team = Team.blue) -> np.ndarray:
         """
         Convert the state object into a pytorch Tensor according to the filters.
 
@@ -102,8 +102,8 @@ class Representation:
         ----------
         state: State,
             the state to convert.
-        perspective: Team,
-            the team from whose perspective the conversion should be made.
+        own_team: Team,
+            decides which team pieces are to be considered one's own pieces in the representation.
 
         Returns
         -------
@@ -126,12 +126,12 @@ class DefaultRepresentation(Representation):
             },
         )
 
-    def __call__(self, state: State, perspective: Team = Team.blue):
+    def __call__(self, state: State, own_team: Team = Team.blue):
         board = state.board
         board_state = np.zeros(
             (1, self.state_rep_dim, board.shape[0], board.shape[1])
         )  # zeros for no information initially
-        for i, check in enumerate(self.filters[perspective]):
+        for i, check in enumerate(self.filters[own_team]):
             for pos, piece in np.ndenumerate(board):
                 if check(piece):
                     board_state[(0, i) + pos.coords] = 1

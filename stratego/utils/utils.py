@@ -11,6 +11,8 @@ import copy
 from inspect import signature
 from dataclasses import dataclass
 
+RNG = Union[np.random.RandomState, np.random.Generator]
+
 
 class Singleton(type):
     _instances = {}

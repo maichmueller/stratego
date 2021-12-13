@@ -57,9 +57,9 @@ class HookPoint(Enum):
 
 class Status(Enum):
     ongoing = 404
-    win_blue = 1
-    win_red = -1
-    tie = 0
+    win_blue = 1.
+    win_red = -1.
+    tie = 0.
 
     @singledispatchmethod
     @classmethod

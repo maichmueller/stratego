@@ -181,7 +181,7 @@ class DQNAlgorithm(Algorithm):
         for idx, entry in enumerate(batch):
             states.append(entry.state)
             actions.append(entry.action)
-            rewards.append(entry.reward)
+            rewards.append(entry.win)
             if (next_state := entry.next_state) is not None:
                 non_final_mask.append(True)
                 non_final_next_states.append(next_state)
