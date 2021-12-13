@@ -1,10 +1,8 @@
-import dataclasses
 import math
+import timeit
 from copy import deepcopy
 from functools import singledispatchmethod, partial
 from typing import Sequence, Tuple, Dict, List, Optional, Callable, Union, Type
-
-import torch
 
 import numpy as np
 
@@ -21,38 +19,6 @@ class MCTS:
 
     EPS = 1e-10
 
-    class Config:
-        __slots__ = ["rng", "cuct", "rollout_policy", "rollout_depth"]
-
-        def __init__(
-                self,
-                rng: Optional[RNG] = rng_from_seed(),
-                cuct: float = 4.0,
-                rollout_policy: Optional[
-                    Callable[[State, List[Action], int], Action]
-                ] = None,
-                rollout_depth: int = float("inf")
-        ):
-            """
-            Parameters
-            ----------
-            cuct: float,
-                the exploration constant of the UCT algorithm. Common values lie between sqrt(2) to 4. Higher values
-                prefer greater exploration in the action selection of MCTS.
-            """
-            self.rng = rng
-            self.cuct: float = cuct
-
-            if rollout_policy is None:
-                def _default_rollout_policy(
-                        rng: RNG, state: State, action_list: List[Action], depth: int
-                ):
-                    return rng.choice(action_list)
-
-                rollout_policy = partial(_default_rollout_policy, rng)
-            self.rollout_policy = rollout_policy
-            self.rollout_depth = rollout_depth
-
     Qsa: Dict[Tuple[str, int], float]  # stores Q values for (s, a)
     Nsa: Dict[Tuple[str, int], int]  # stores #times edge (s, a) was visited
     Ns: Dict[str, float]  # stores #times state s was visited
@@ -61,7 +27,15 @@ class MCTS:
     Ls: Dict[str, np.ndarray]  # stores legal moves for state s
 
     def __init__(
-            self, action_map: ActionMap, config: Config = Config(), logic: Logic = Logic(),
+        self,
+        action_map: ActionMap,
+        rng: Optional[RNG] = rng_from_seed(),
+        cuct: float = 4.0,
+        rollout_policy: Optional[Callable[[State, List[Action], int], Action]] = None,
+        rollout_heuristic: Optional[Callable[[State, Team], float]] = None,
+        rollout_depth: int = float("inf"),
+        rollout_timeout: float = float("inf"),
+        logic: Logic = Logic(),
     ):
         """
 
@@ -69,12 +43,44 @@ class MCTS:
         ----------
         action_map: ActionMap,
             the mapping of indices to actions.
+        cuct: float,
+            the exploration constant of the UCT algorithm. Common values lie between sqrt(2) to 4. Higher values
+            prefer greater exploration in the action selection of MCTS.
+        rollout_heuristic: Optional[Callable[[State, Team], float]],
+            the heuristic used to evaluate a step if a stop condition was reached, instead of a terminal node.
+            It takes in the step and the team from whose perspective the value should be estimated.
+            A heuristic needs to be provided, if any of the stop conditions (depth or time) has been set.
+        rollout_depth: int,
+            The stop condition on the maximum depth to search for in the tree.
+        rollout_timeout: float,
+            The stop condition to limit the computational time the algorithm can take.
         logic: Logic,
             the underlying Stratego game logic object.
         """
+
         self.action_map = action_map
+        self.rng = rng
+        self.cuct: float = cuct
+
+        if rollout_policy is None:
+
+            def _default_rollout_policy(
+                rng_: RNG, state: State, action_list: List[Action], depth: int
+            ):
+                return rng_.choice(action_list)
+
+            rollout_policy = partial(_default_rollout_policy, rng)
+
+        self.rollout_policy = rollout_policy
+        self.rollout_depth = rollout_depth
+        self.rollout_timeout = rollout_timeout
+        if (
+            rollout_depth != float("inf") or rollout_timeout != float("inf")
+        ) and rollout_heuristic is None:
+            raise ValueError("If ")
+        self.rollout_heuristic = rollout_heuristic
+
         self.logic = logic
-        self.config = config
 
         self.reset_tree()
 
@@ -86,12 +92,12 @@ class MCTS:
         self.Ls = {}
 
     def policy(
-            self,
-            state: State,
-            agent: RLAgent,
-            perspective: Optional[Team] = None,
-            nr_sims: int = 1,
-            temperature: float = 1.0,
+        self,
+        state: State,
+        agent: RLAgent,
+        perspective: Optional[Team] = None,
+        nr_sims: int = 1,
+        temperature: float = 1.0,
     ) -> np.ndarray:
         """
         This function performs n_mcts_sims simulations of MCTS starting from the given
@@ -128,29 +134,24 @@ class MCTS:
             value = self.search(deepcopy(state), perspective=perspective)
             assert value != float("inf"), "MCTS estimated state value is infinite."
 
-        if perspective != Team.blue and not state.flipped_teams:
-            # ensure the chosen perspective is seen as team blue
-            state.flip_teams()
-
         s = str(state)
 
         counts = np.array(
             [self.Nsa[(s, a)] if (s, a) in self.Nsa else 0 for a in self.action_map]
         )
 
-        if state.flipped_teams:
-            state.flip_teams()
+        policy = self._apply_temperature(counts, temperature)
 
-            # reset the flipping
+        return policy
 
+    def _apply_temperature(self, counts, temperature):
         if temperature == 0:
             best_act = int(np.argmax(counts))
             policy = np.zeros(len(counts))
             policy[best_act] = 1
-            return policy
-
-        counts = counts ** (1.0 / temperature)
-        policy = counts / counts.sum()
+        else:
+            counts = counts ** (1.0 / temperature)
+            policy = counts / counts.sum()
         return policy
 
     def search(self, state: State, perspective: Team, logic: Logic = Logic()):
@@ -172,22 +173,10 @@ class MCTS:
         # (state, action) -> value sign
         sa_to_sign = dict()
 
-        # this simply initializes the variable.
-        # If one finds this value later in the tree, then there is a bug in the logic.
-        value = float("inf")
-
         # depth counter for tree traversal
         depth = 0
 
-        # the evaluator of state nodes will be assigned in each iteration of the step
-        evaluator = None
-
         while True:
-
-            if state.active_team == Team.red:
-                # the network is trained only from the perspective of team blue
-                state.flip_teams()
-
             # get string representation of state
             s = str(state)
 
@@ -202,14 +191,16 @@ class MCTS:
                 break  # break out of the while loop
             elif s not in self.Ns:
                 # leaf node
-                # roll out the game to find the value of this node and backpropagate it
-                value = self._expand(state, s, perspective)
+                # roll out the game to find the value of this node and propagate the value back up
+                value = self._expand(state, s, depth, perspective)
                 break  # break out of the while loop
             else:
                 a = self._select_action(s, depth)
                 sa_to_sign[(s, a)] = value_sign
                 # apply the move onto the state
-                move = self.action_map.action_to_move(a, state.piece_by_id, state.active_team)
+                move = self.action_map.action_to_move(
+                    a, state.piece_by_id, state.active_team
+                )
                 self.logic.execute_move(state, move)
 
                 depth += 1
@@ -231,7 +222,7 @@ class MCTS:
             # 2. Add new rewards to it: Sum_r_new = Sum_r + rewards (=value)
             # 3. Average out over new count: avg. rewards new = Sum_r_new / (Nr Visits + 1)
             self.Qsa[s_a] = (self.Nsa[s_a] * self.Qsa[s_a] + value) / (
-                    self.Nsa[s_a] + 1
+                self.Nsa[s_a] + 1
             )
             self.Nsa[s_a] += 1
         else:
@@ -242,7 +233,7 @@ class MCTS:
         # pick the action with the highest upper confidence bound
         cur_best = -float("inf")
         best_actions = []
-        cuct = self.config.cuct
+        cuct = self.cuct
         for a in np.where(self.Ls[s])[0]:
             a = self.action_map[a]
             if (s, a) in self.Qsa:
@@ -261,39 +252,43 @@ class MCTS:
                 best_actions.append(a)
 
         # if there is more than one best action, select randomly
-        return self.config.rng.choice(best_actions)
+        return self.rng.choice(best_actions)
 
     def _expand(
-            self, state: State, s: str, depth: int, team: Team,
+        self, state: State, s: str, depth: int, team: Team,
     ):
-        reward = 0.
+        """
+        Perform the simulation step of the MCTS algorithm. This will play the game in turn according to the default
+        policy and return the value found. If no end has been found before the maximum time or depth ran out, a
+        heuristic is asked to evaluate the current state.
+        """
+
         curr_depth = depth
+        timer = timeit.default_timer
+        runtime = 0.0
         state_copy = deepcopy(state)
 
-        for i in range(self.config.rollout_depth):
+        for i in range(self.rollout_depth):
+            start_time = timer()
             # Choose action according to default policy
-            action = self.config.rollout_policy(state_copy, self.action_map.actions, depth)
+            action = self.rollout_policy(state_copy, self.action_map.actions, depth)
             # apply action onto state
-            move = self.action_map.action_to_move(action, state.piece_by_id, state.active_team)
+            move = self.action_map.action_to_move(
+                action, state.piece_by_id, state.active_team
+            )
             self.logic.execute_move(state_copy, move)
             # accumulate reward
             if state_copy.status != Status.ongoing:
                 if state_copy.status == Status.tie:
-
-                    return Status.win(state_copy.active_team.opponent())
+                    return Status.tie.value
                 else:
-                    return Status.tie
-
-
-        // Check if terminal
-        state
-        if (cur_state->terminal())
-        break;
-        discount *= _gamma;
-
-    }
-
-    return reward;
+                    return Status.win(state_copy.active_team.opponent()).value
+            # incr runtime by elapsed amount of time and the depth by 1
+            runtime += timer() - start_time
+            curr_depth += 1
+            # check if any of the configured stop conditions hold.
+            if curr_depth == self.rollout_depth or runtime > self.rollout_timeout:
+                return self.rollout_heuristic(state_copy, team)
 
     def _get_value_sign(self, state: State, perspective: Team):
         if state.active_team == perspective:
@@ -311,50 +306,21 @@ class EvaluatorMCTS(MCTS):
     A usage of this MCTS variant is found in the AlphaZero algorithm.
     """
 
-    EPS = 1e-10
-
-    class Config:
-        def __init__(
-                self,
-                cuct: float = 4.0,
-                eval_needs_flipping: bool = True,
-                opp_eval_needs_flipping: bool = True,
-        ):
-            """
-            Parameters
-            ----------
-            cuct: float,
-                the exploration constant of the UCT algorithm. Common values lie between sqrt(2) to 4. Higher values
-                prefer greater exploration in the action selection of MCTS.
-            eval_needs_flipping: bool,
-                whether the model for evaluating states needs to see itself as team blue (0) for correct evaluation.
-            opp_eval_needs_flipping: bool,
-                whether the opponent model for evaluating states needs to see itself as team blue (0) for correct evaluation.
-            """
-            self.cuct: float = cuct
-            self.eval_flip: bool = eval_needs_flipping
-            self.opp_eval_flip: bool = opp_eval_needs_flipping
-
-    Qsa: Dict[Tuple[str, int], float]  # stores Q values for (s, a)
-    Nsa: Dict[Tuple[str, int], int]  # stores #times edge (s, a) was visited
-    Ns: Dict[str, float]  # stores #times state s was visited
     Ps: Dict[str, np.ndarray]  # stores policy (returned by evaluator)
-
-    Ts: Dict[str, Status]  # stores game end status for state s (terminality)
-    Ls: Dict[str, np.ndarray]  # stores legal moves for state s
 
     # the evaluator type needs to return a policy and the value for a given state tensor.
     EvaluatorT = Callable[[np.ndarray], Tuple[np.ndarray, float]]
 
     def __init__(
-            self,
-            evaluator: EvaluatorT,
-            opp_evaluator: EvaluatorT,
-            representer: Representation,
-            action_map: ActionMap,
-            rng: Optional[RNG] = rng_from_seed(),
-            config: Config = Config(),
-            logic: Logic = Logic(),
+        self,
+        evaluator: EvaluatorT,
+        opp_evaluator: EvaluatorT,
+        representer: Representation,
+        action_map: ActionMap,
+        rng: Optional[RNG] = rng_from_seed(),
+        eval_needs_flipping: bool = True,
+        opp_eval_needs_flipping: bool = True,
+        logic: Logic = Logic(),
     ):
         """
 
@@ -371,18 +337,23 @@ class EvaluatorMCTS(MCTS):
             the state representation method. Converts state objects to appropriate state tensors.
         action_map: ActionMap,
             the mapping of indices to actions.
+        eval_needs_flipping: bool,
+            whether the model for evaluating states needs to see itself as team blue (0) for correct evaluation.
+        opp_eval_needs_flipping: bool,
+            whether the opponent model for evaluating states needs to see itself as team blue (0) for correct evaluation.
         logic: Logic,
             the underlying Stratego game logic object.
         """
+        super(EvaluatorMCTS, self).__init__(action_map=action_map, rng=rng, logic=logic)
         self.evaluator = evaluator
         self.opp_evaluator = opp_evaluator
         self.current_evaluator = None
         self.representer = representer
-        self.action_map = action_map
-        self.rng = rng
-        self.logic = logic
-        self.config = config
 
+        self.eval_flip: bool = eval_needs_flipping
+        self.opp_eval_flip: bool = opp_eval_needs_flipping
+
+        self.Ps = {}
         self.reset_tree()
 
     def reset_tree(self):
@@ -390,12 +361,12 @@ class EvaluatorMCTS(MCTS):
         self.Ps = {}
 
     def policy(
-            self,
-            state: State,
-            agent: RLAgent,
-            perspective: Optional[Team] = None,
-            nr_sims: int = 1,
-            temperature: float = 1.0,
+        self,
+        state: State,
+        agent: RLAgent,
+        perspective: Optional[Team] = None,
+        nr_sims: int = 1,
+        temperature: float = 1.0,
     ) -> np.ndarray:
         """
         This function performs n_mcts_sims simulations of MCTS starting from the given
@@ -443,18 +414,11 @@ class EvaluatorMCTS(MCTS):
         )
 
         if state.flipped_teams:
+            # reset the flipping
             state.flip_teams()
 
-            # reset the flipping
+        policy = self._apply_temperature(counts, temperature)
 
-        if temperature == 0:
-            best_act = int(np.argmax(counts))
-            policy = np.zeros(len(counts))
-            policy[best_act] = 1
-            return policy
-
-        counts = counts ** (1.0 / temperature)
-        policy = counts / counts.sum()
         return policy
 
     def search(self, state: State, perspective: Team, logic: Logic = Logic()):
@@ -472,70 +436,9 @@ class EvaluatorMCTS(MCTS):
         float,
             the board value for the agent.
         """
-
-        # (state, action) -> value sign
-        sa_to_sign = dict()
-
-        # this simply initializes the variable.
-        # If one finds this value later in the tree, then there is a bug in the logic.
-        value = float("inf")
-
-        # the first iteration is always the root
-        root = True
-
         # the evaluator of state nodes will be assigned in each iteration of the step
         self.current_evaluator = None
-
-        while True:
-
-            if state.active_team == Team.red:
-                # the network is trained only from the perspective of team blue
-                state.flip_teams()
-
-            # get string representation of state
-            s = str(state)
-
-            value_sign = self._get_value_sign(state, perspective)
-
-            if s not in self.Ts:
-                self.Ts[s] = logic.get_status(state)
-
-            if self.Ts[s] != Status.ongoing:
-                # terminal node
-                value = self.Ts[s].value
-                break  # break out of the while loop
-            elif s not in self.Ps:
-                # leaf node
-                # this step here differs from the standard mcts algorithm. Instead of performing a rollout of the game,
-                # which would give us the value of this leaf node, we ask the evaluator (e.g. a neural net) to provide
-                # an estimate of the policy and value.
-                value = self._expand(state, s, perspective)
-                break  # break out of the while loop
-            else:
-                # has not reached a leaf or terminal node yet, so keep searching
-                # by playing according to the current policy
-                valids = self.Ls[s]
-                policy = self.Ps[s]
-                if root:
-                    policy = self._make_policy_noisy(policy, valids)
-                    # the root is only the first iteration. This information was used
-                    # only to add noise to the policy. So now we can deactivate this.
-                    root = False
-
-                a = self._select_action(s, policy, valids)
-                sa_to_sign[(s, a)] = value_sign
-
-                move = self.action_map.action_to_move(a, state, Team.blue)
-                self.logic.execute_move(state, move)
-
-        for (s, a), perspec in sa_to_sign:
-            # for every (state, action) pair: update its Q-value and visitation counter.
-            self._update_qsa(s, a, value * perspec)
-            # increment the visitation counter of this state
-            self.Ns[s] += 1
-
-        # adjust for team perspective and return the value
-        return value * value_sign
+        return super().search(state, perspective, logic)
 
     def _get_value_sign(self, state, perspective):
         if (state.active_team == perspective) == state.flipped_teams:
@@ -559,7 +462,7 @@ class EvaluatorMCTS(MCTS):
         s_a = (s, a)
         if s_a in self.Qsa:
             self.Qsa[s_a] = (self.Nsa[s_a] * self.Qsa[s_a] + value) / (
-                    self.Nsa[s_a] + 1
+                self.Nsa[s_a] + 1
             )
             self.Nsa[s_a] += 1
 
@@ -567,18 +470,25 @@ class EvaluatorMCTS(MCTS):
             self.Qsa[s_a] = value
             self.Nsa[s_a] = 1
 
-    def _select_action(
-            self, s: str, policy: Sequence[float], valid_actions: Sequence[bool]
-    ):
+    def _select_action(self, s: str, depth: int):
+        # has not reached a leaf or terminal node yet, so keep searching
+        # by playing according to the current policy
+        valids = self.Ls[s]
+        policy = self.Ps[s]
+        if depth == 0:
+            policy = self._make_policy_noisy(policy, valids)
+            # the root is only the first iteration. This information was used
+            # only to add noise to the policy.
+
         # pick the action with the highest upper confidence bound
         cur_best = -float("inf")
         best_actions = []
         cuct = self.config.cuct
-        for a in np.where(valid_actions)[0]:
+        for a in np.where(valids)[0]:
             a = self.action_map[a]
             if (s, a) in self.Qsa:
                 u = self.Qsa[(s, a)] + cuct * policy[a] * math.sqrt(self.Ns[s]) / (
-                        1 + self.Nsa[(s, a)]
+                    1 + self.Nsa[(s, a)]
                 )
             else:
                 u = cuct * policy[a] * math.sqrt(self.Ns[s] + self.EPS)
@@ -593,7 +503,7 @@ class EvaluatorMCTS(MCTS):
         return self.rng.choice(best_actions)
 
     def _expand(
-            self, state: State, s: str, team: Team,
+        self, state: State, s: str, depth: int, team: Team,
     ):
         state_tensor = self.representer(state, own_team=Team.blue)
         policy_or_action, value = self.current_evaluator(state_tensor)
@@ -614,7 +524,7 @@ class EvaluatorMCTS(MCTS):
         return value
 
     def _make_policy_noisy(
-            self, policy: np.ndarray, valid_actions: np.ndarray, weight: float = 0.25
+        self, policy: np.ndarray, valid_actions: np.ndarray, weight: float = 0.25
     ):
         # add noise to the actions to encourage more exploration
         dirichlet_noise = np.random.dirichlet([0.5] * len(self.action_map))
