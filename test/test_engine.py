@@ -1,16 +1,7 @@
 from stratego.core import (
     Logic,
-    State,
-    Status,
-    Position,
-    Piece,
     Team,
-    Token,
-    Board,
-    BattleMatrix,
-    ActionMap,
 )
-import numpy as np
 from build_board import minimal_state, minimal_state2
 
 

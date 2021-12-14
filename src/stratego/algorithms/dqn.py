@@ -1,5 +1,4 @@
-from enum import Enum
-from typing import Optional, Union, Type, Dict, Any, Callable, List
+from typing import Optional, Union, Type, Dict
 
 from .algorithms import Algorithm
 from stratego.learning import (
@@ -19,8 +18,7 @@ from torch.functional import F
 import numpy as np
 
 import stratego.utils as utils
-from .algorithms import DeepLearningAlgorithm
-from stratego.agent import RLAgent, DRLAgent
+from stratego.agent import DRLAgent
 from stratego.core import ActionMap
 from stratego.game import Game
 

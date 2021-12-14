@@ -4,13 +4,11 @@ from abc import ABC, abstractmethod
 from enum import Enum
 
 from collections import namedtuple
-from functools import singledispatchmethod
-from typing import Optional, Callable
+from typing import Optional
 
 import numpy as np
 
 from stratego import utils
-from stratego.core import Team, Status
 
 
 class RewardToken(Enum):

@@ -1,5 +1,5 @@
-from stratego.algorithms import MCTS, EvaluatorMCTS
-from build_board import minimal_state, minimal_state2, minimal_state3
+from stratego.algorithms import MCTS
+from build_board import minimal_state3
 from stratego import ActionMap, rng_from_seed, Team
 
 

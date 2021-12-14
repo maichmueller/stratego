@@ -1,5 +1,4 @@
-from stratego.agent import RandomAgent
-from stratego.core import Board, State, Team
+from stratego import RandomAgent
 from stratego import Game
 import matplotlib.pyplot as plt
 import numpy as np

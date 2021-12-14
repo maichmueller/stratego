@@ -4,7 +4,7 @@ import numpy as np
 import copy
 
 import torch
-from collections import defaultdict, Counter
+from collections import defaultdict
 from abc import ABC
 
 from stratego.core import (
@@ -15,7 +15,6 @@ from stratego.core import (
     GameSpecification,
     Board,
     Move,
-    Position,
     Piece,
     ActionMap,
     Action,
@@ -25,7 +24,6 @@ from stratego.core import (
 )
 from stratego.learning import (
     Representation,
-    DefaultRepresentation,
     PolicyMode,
 )
 import stratego.utils as utils

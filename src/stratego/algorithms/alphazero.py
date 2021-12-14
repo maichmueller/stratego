@@ -1,4 +1,3 @@
-from abc import abstractmethod, ABC
 from typing import Optional, Union
 
 from .algorithms import DeepLearningAlgorithm
@@ -11,7 +10,7 @@ from stratego.algorithms.mcts import MCTS
 
 from stratego.game import Game
 import stratego.arena as arena
-from stratego.core import Logic, Team, ActionMap, Action, Status
+from stratego.core import Team, ActionMap, Action, Status
 from stratego.agent import AlphaZeroAgent
 
 from copy import deepcopy
