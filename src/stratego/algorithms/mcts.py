@@ -8,7 +8,7 @@ import numpy as np
 
 from stratego.learning import Representation
 from stratego.agent import RLAgent
-from stratego.core import Action, ActionMap, Logic, Status, Team, State
+from stratego.core import Action, ActionMap, Logic, Status, Team, State, GameConfig
 from stratego.utils import RNG, rng_from_seed
 
 

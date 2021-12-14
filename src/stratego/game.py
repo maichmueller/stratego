@@ -1,6 +1,7 @@
 from stratego.learning import default_reward_function, RewardToken
 from stratego.agent import Agent, RLAgent
-from stratego.utils import slice_kwargs
+from stratego.utils import slice_kwargs, RNG
+from stratego.core.config import GameConfig
 from stratego.core import (
     State,
     InfoState,
@@ -11,7 +12,6 @@ from stratego.core import (
     Status,
     Team,
     HookPoint,
-    GameSpecification,
     Piece,
     Obstacle,
 )
@@ -29,13 +29,17 @@ class Game:
         self,
         agent0: Agent,
         agent1: Agent,
+        *,  # the rest of the parameters are keyword only
         state: Optional[State] = None,
-        game_size: str = "l",
+        config: Optional[GameConfig] = None,
         logic: Logic = Logic(),
         reward_func: Callable[[RewardToken], float] = default_reward_function,
         fixed_setups: Tuple[Optional[Iterable[Piece]]] = (None, None),
-        seed: Optional[Union[np.random.Generator, int]] = None,
+        seed: Optional[Union[RNG, int]] = None,
     ):
+        """
+
+        """
         self.agents: Dict[Team, Agent] = {
             Team(agent0.team): agent0,
             Team(agent1.team): agent1,
@@ -49,25 +53,29 @@ class Game:
             else:
                 self.fixed_setups[team] = None
 
-        self.specs: GameSpecification = GameSpecification(game_size)
-
-        self.rng_state = np.random.default_rng(seed)
+        self.rng = np.random.default_rng(seed)
         self.logic = logic
         self.state: State
         if state is not None:
             self.state = state
             self.state.dead_pieces = logic.compute_dead_pieces(
-                state.board, self.specs.token_count
+                state.board, state.config.token_count
             )
+        elif config is not None:
+            self.reset(config)
         else:
-            self.reset()
+            raise ValueError(
+                f"Either a valid state {state=} or a new game config {config=} needs to be passed. "
+                f"Can not both be 'None'."
+            )
+
         self.reward_func = reward_func
 
     def __str__(self):
         return (
             f"Agent Blue: {self.agents[Team.blue]}\n"
             f"Agent Red:  {self.agents[Team.red]}\n"
-            f"Game size: {self.specs.game_size}\n"
+            f"Game size: {self.state.config.game_size}\n"
             f"Logic: {type(self.logic).__name__}\n"
             f"State:\n{str(self.state)}"
         )
@@ -80,10 +88,10 @@ class Game:
             for hook_point, hooks in agent.hooks.items():
                 self.hook_handler[hook_point].extend(hooks)
 
-    def reset(self):
+    def reset(self, config: GameConfig):
         self.state = State(
             Board(self.draw_board()),
-            starting_team=self.rng_state.choice([Team.blue, Team.red]),
+            config=GameConfig(config.game_size, self.rng.choice([Team.blue, Team.red])),
         )
         return self
 
@@ -105,7 +113,7 @@ class Game:
                 pass
 
         if (
-            status := self.logic.get_status(self.state, specs=self.specs)
+            status := self.logic.get_status(self.state, specs=self.state.config)
         ) != Status.ongoing:
             game_over = True
 
@@ -193,7 +201,7 @@ class Game:
 
         # test if game is over
         if (
-            status := self.logic.get_status(self.state, specs=self.specs)
+            status := self.logic.get_status(self.state, specs=self.state.config)
         ) != Status.ongoing:
             return status
 
@@ -212,13 +220,13 @@ class Game:
         np.ndarray,
             the setup, in numpy array form
         """
-        rng = self.rng_state
+        rng = self.rng
 
         board = Board(
-            np.empty((self.specs.game_size, self.specs.game_size), dtype=object)
+            np.empty((self.state.config.game_size, self.state.config.game_size), dtype=object)
         )  # inits all entries to None
         for team in Team:
-            token_count = self.specs.token_count
+            token_count = self.state.config.token_count
             all_tokens = list(token_count.keys())
             token_freqs = list(token_count.values())
 
@@ -226,12 +234,12 @@ class Game:
                 for piece in setup:
                     board[piece.position] = piece
             else:
-                setup_rows = self.specs.setup_rows[team]
+                setup_rows = self.state.config.setup_rows[team]
 
                 all_pos = [
                     Position(r, c)
                     for r, c in itertools.product(
-                        setup_rows, range(self.specs.game_size)
+                        setup_rows, range(self.state.config.game_size)
                     )
                 ]
 
@@ -255,7 +263,7 @@ class Game:
 
                     board[pos] = Piece(pos, team, token, version)
 
-        for obs_pos in self.specs.obstacle_positions:
+        for obs_pos in self.state.config.obstacle_positions:
             board[obs_pos] = Obstacle(obs_pos)
 
         return board

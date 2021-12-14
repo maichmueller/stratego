@@ -3,7 +3,7 @@ from typing import Optional
 
 from stratego import DRLAgent
 from stratego.game import Game
-from stratego.core import Logic, Team, ActionMap
+from stratego.core import ActionMap
 from stratego.agent import RLAgent
 
 from copy import deepcopy

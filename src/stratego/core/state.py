@@ -1,11 +1,12 @@
 import copy
 from collections import defaultdict
-from typing import Sequence, Optional, Tuple, Dict, List
+from typing import Optional, Tuple, Dict, List
 
 from .game_defs import Status, Token, Team
-from .piece import Piece, ShadowPiece, Obstacle
+from .piece import Piece, Obstacle
 from .position import Position, Move
 from .board import Board, InfoBoard
+from stratego.core.config import GameConfig
 
 import numpy as np
 
@@ -51,7 +52,7 @@ class State:
     def __init__(
         self,
         board: Board,
-        starting_team: Team,
+        config: GameConfig,
         piece_by_id_map: Dict[Tuple[Token, int, Team], Piece] = None,
         history: Optional[History] = None,
         turn_count: int = 0,
@@ -66,15 +67,14 @@ class State:
             else self._relate_piece_to_identifier(self.board)
         )
         self.history: History = history if history is not None else History()
-        self.game_size: int = board.shape[0]
 
+        self._config = config
         self._status: Status = status
         self._status_checked: bool = False
 
         self.flipped_teams: bool = flipped_teams
 
         self._turn_counter: int = turn_count
-        self._starting_team: Team = starting_team
         self._active_team: Team = Team((turn_count + int(self._starting_team)) % 2)
 
         if dead_pieces is not None:
@@ -106,9 +106,14 @@ class State:
         return self._active_team
 
     @property
+    def config(self):
+        # no outside manipulation intended
+        return self._config
+
+    @property
     def starting_team(self):
         # no outside manipulation intended
-        return self._starting_team
+        return self.config.starting_team
 
     @property
     def status_checked(self):
@@ -186,6 +191,14 @@ class State:
                 piece.team += 1
                 piece.change_position(pos)
 
+    def _assert_board_size_config_eq(self):
+        if any(dim != self.config.game_size for dim in self.board.shape):
+            raise ValueError(
+                f"Board dimensions {self.board.shape=} "
+                f"and game configuration of dimension {self.config.game_size=} "
+                f"do not match."
+            )
+
 
 class InfoState(State):
     def __init__(self, state: State, team: Team):
@@ -197,5 +210,5 @@ class InfoState(State):
             state.turn_counter,
             state.flipped_teams,
             state.status,
-            state.dead_pieces
+            state.dead_pieces,
         )

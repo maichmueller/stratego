@@ -2,7 +2,7 @@ from typing import Dict
 
 from stratego.core import Status, Team
 from stratego.utils import RollingMeter
-from .game import Game
+from stratego.game import Game
 
 import os
 import sys

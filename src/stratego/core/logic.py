@@ -1,11 +1,8 @@
 from .piece import Obstacle
 from .game_defs import (
     Status,
-    MAX_NR_TURNS,
     Token,
     Team,
-    BattleMatrix,
-    GameSpecification,
 )
 from .state import State
 from .position import Position, Move
@@ -53,7 +50,7 @@ class Logic(metaclass=Singleton):
                 print("Warning, can't let pieces of same team fight!")
                 return False
 
-            fight_outcome = BattleMatrix[piece_att.token, piece_def.token]
+            fight_outcome = state.config.battlematrix[piece_att.token, piece_def.token]
             board_update = dict()
             if fight_outcome == 1:
                 # attacker won and moves onto defender spot, defender dies
@@ -99,7 +96,7 @@ class Logic(metaclass=Singleton):
             if piece_to is not None:
                 # if the target position held an actual piece, then there was a fight and
                 # we need to update the dead pieces dictionary.
-                if fight := BattleMatrix[piece_from.token, piece_to.token] == 0:
+                if fight := state.config.battlematrix[piece_from.token, piece_to.token] == 0:
                     state.dead_pieces[Team(piece_from.team)][piece_from.token] -= 1
                     state.dead_pieces[Team(piece_to.team)][piece_to.token] -= 1
                 elif fight == 1:
@@ -112,25 +109,25 @@ class Logic(metaclass=Singleton):
         state.unset_status()
 
     @classmethod
-    def get_status(cls, state: State, force=False, **kwargs):
+    def get_status(cls, state: State, force=False):
         if force or not state.status_checked:
-            cls.check_terminal(state, **kwargs)
+            cls.check_terminal(state)
         return state.status
 
     @classmethod
-    def check_terminal(cls, state: State, specs: GameSpecification):
+    def check_terminal(cls, state: State):
         for player in (Team(0), Team(1)):
             dead_pieces = state.dead_pieces[player]
             if dead_pieces[Token.flag] == 1 or all(
                 dead_pieces[token] == count
-                for token, count in specs.token_count.items()
+                for token, count in state.config.token_count.items()
                 if token not in [Token.flag, Token.bomb]
                 # all move-able enemy pieces have been captured -> opponent won
             ):
                 state.set_status(Status.win(player.opponent()))
                 return
 
-        if state.turn_counter >= MAX_NR_TURNS or any(
+        if state.turn_counter >= state.config.max_nr_turns or any(
             all(move is None for move in cls.possible_moves_iter(state.board, team))
             for team in (Team.blue, Team.red)
         ):

@@ -11,3 +11,5 @@ checkpoints/*
 
 
 .dmypy.json
+
+**/stratego.egg-info/

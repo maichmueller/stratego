@@ -2,7 +2,7 @@ from stratego.core import (
     Logic,
     Team,
 )
-from build_board import minimal_state, minimal_state2
+from .build_board import minimal_state, minimal_state2
 
 
 def test_logic():

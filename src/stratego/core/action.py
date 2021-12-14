@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from .state import State
-from .game_defs import Token, Team, GameSpecification
+from .game_defs import Token, Team
+from .config import GameConfig
 from .position import Position, Move
 from .board import Board
 from .logic import Logic
@@ -56,8 +57,8 @@ class Action:
 
 
 class ActionMap:
-    def __init__(self, game_specs: GameSpecification):
-        self.specs = game_specs
+    def __init__(self, config: GameConfig):
+        self.specs = config
         (
             self.actions,  # type: List[Action]
             self.actions_inverse,  # type: Dict[Action, Action]

@@ -12,13 +12,12 @@ from stratego.core import (
     Logic,
     Team,
     HookPoint,
-    GameSpecification,
     Board,
     Move,
     Piece,
     ActionMap,
     Action,
-    InfoBoard,
+    InfoState,
     ShadowPiece,
     Token,
 )
@@ -46,7 +45,7 @@ class Agent(ABC):
         self.rng = utils.rng_from_seed(seed)
         return self
 
-    def setup(self, info_board: InfoBoard):
+    def setup(self, info_state: InfoState):
         pass
 
     def decide_move(self, state: State, logic: Logic = Logic()) -> Move:
@@ -238,12 +237,12 @@ class MCAgent(Agent, ABC):
     def __init__(self, team: Union[int, Team]):
         super().__init__(team=team)
         self.info_board = None
-        self.specs = None
+        self.config = None
         self.identified_pieces: List[Piece] = []
 
-    def setup(self, info_board: InfoBoard):
-        self.info_board = info_board
-        self.specs = GameSpecification(self.info_board.shape[0])
+    def setup(self, info_state: InfoState):
+        self.info_board = info_state
+        self.config = info_state.config
 
     def identify_piece(self, piece):
         """
@@ -295,7 +294,7 @@ class MCAgent(Agent, ABC):
         """
         # get information about enemy pieces (how many, which alive, which types, and indices in assign. array)
         board = Board(copy.deepcopy(self.info_board))
-        tokens = copy.deepcopy(self.specs.token_count)
+        tokens = copy.deepcopy(self.config.token_count)
         version_table = defaultdict(list)
         for piece in self.identified_pieces:
             tokens[piece.token] -= 1
