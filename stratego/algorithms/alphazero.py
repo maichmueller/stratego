@@ -22,7 +22,7 @@ from torch import optim
 import numpy as np
 
 import os
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import cpu_count, Lock

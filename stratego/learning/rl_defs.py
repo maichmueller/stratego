@@ -13,6 +13,28 @@ from stratego import utils
 from stratego.core import Team, Status
 
 
+class RewardToken(Enum):
+    illegal = 0
+    step = 1
+    kill = 2
+    kill_mutually = 3
+    die = 4
+    win = 5
+    loss = 6
+    tie = 7
+
+
+def default_reward_function(reward_token: RewardToken):
+    if reward_token == RewardToken.win:
+        return 1.
+    elif reward_token == RewardToken.loss:
+        return -1.
+    elif reward_token == RewardToken.tie:
+        return 0.
+    else:
+        return 0.
+
+
 class PolicyMode(Enum):
     stochastic = 0
     eps_greedy = 1

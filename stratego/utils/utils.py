@@ -3,11 +3,7 @@ from typing import Union, Optional, Any, List, Iterable
 import numpy as np
 from matplotlib import pyplot as plt
 
-from sklearn.manifold import TSNE
 import torch
-from torch.nn import functional as F
-from torch.autograd import Variable
-import copy
 from inspect import signature
 from dataclasses import dataclass
 

@@ -28,7 +28,7 @@ from stratego.game import Game
 class DQNAlgorithm(Algorithm):
     """
     A Deep Q-Network Teacher using the Double Q Learning strategy[1] if activated.
-    This can also be used to test a dueling network architecture[2].
+    This can also be used in conjunction with a dueling network architecture[2].
 
     References
     ----------
@@ -36,6 +36,11 @@ class DQNAlgorithm(Algorithm):
         "Deep reinforcement learning with double q-learning."
         Proceedings of the AAAI Conference on Artificial Intelligence. Vol. 30. No. 1. 2016.
         https://ojs.aaai.org/index.php/AAAI/article/download/10295/10154
+    [2] Wang, Ziyu, et al.
+        "Dueling network architectures for deep reinforcement learning."
+        International conference on machine learning.
+        PMLR, 2016.
+        http://proceedings.mlr.press/v48/wangf16.html
     """
 
     def __init__(

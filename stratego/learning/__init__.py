@@ -1,5 +1,6 @@
 from .rl_defs import (
     RewardToken,
+    default_reward_function,
     PolicyMode,
     Experience,
     DQNMemory,

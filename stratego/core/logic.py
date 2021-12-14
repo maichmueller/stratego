@@ -13,7 +13,6 @@ from .board import Board
 from stratego.utils import Singleton
 
 from typing import Sequence, Optional, Iterator, Union, Dict
-from scipy import spatial
 import numpy as np
 from collections import Counter, defaultdict
 
@@ -174,7 +173,7 @@ class Logic(metaclass=Singleton):
             elif board[pos_after].team == board[pos_before].team:
                 return False  # cant fight own pieces
 
-        move_dist = spatial.distance.cityblock(pos_before, pos_after)
+        move_dist = len(move_to_check)
         if move_dist > 1:
             if pos_after[0] == pos_before[0]:
                 dist_sign = int(np.sign(pos_after[1] - pos_before[1]))

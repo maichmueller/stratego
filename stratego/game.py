@@ -1,19 +1,27 @@
-from stratego.learning import RewardToken
-from stratego.core.piece import Piece, Obstacle
+from stratego.learning import default_reward_function, RewardToken
 from stratego.agent import Agent, RLAgent
-from stratego.core.state import State
-from stratego.core.logic import Logic
-from stratego.core.position import Position, Move
-from stratego.core.board import Board
-from stratego.core.game_defs import Status, Team, HookPoint, GameSpecification
 from stratego.utils import slice_kwargs
+from stratego.core import (
+    State,
+    InfoState,
+    Logic,
+    Position,
+    Move,
+    Board,
+    Status,
+    Team,
+    HookPoint,
+    GameSpecification,
+    Piece,
+    Obstacle,
+)
 
-from typing import Optional, Dict, List, Sequence, Callable, Iterable, Union, Tuple
 import numpy as np
 from collections import defaultdict
 import itertools
-
 import matplotlib.pyplot as plt
+
+from typing import Optional, Dict, List, Sequence, Callable, Iterable, Union, Tuple
 
 
 class Game:
@@ -24,6 +32,7 @@ class Game:
         state: Optional[State] = None,
         game_size: str = "l",
         logic: Logic = Logic(),
+        reward_func: Callable[[RewardToken], float] = default_reward_function,
         fixed_setups: Tuple[Optional[Iterable[Piece]]] = (None, None),
         seed: Optional[Union[np.random.Generator, int]] = None,
     ):
@@ -32,7 +41,7 @@ class Game:
             Team(agent1.team): agent1,
         }
         self.hook_handler: Dict[HookPoint, List[Callable]] = defaultdict(list)
-        self._gather_hooks(agents=(agent0, agent1))
+        self._register_hooks(agents=(agent0, agent1))
         self.fixed_setups: Dict[Team, Optional[Sequence[Piece]]] = dict()
         for team in Team:
             if setup := fixed_setups[team.value] is not None:
@@ -52,6 +61,7 @@ class Game:
             )
         else:
             self.reset()
+        self.reward_func = reward_func
 
     def __str__(self):
         return (
@@ -65,7 +75,7 @@ class Game:
     def __hash__(self):
         return hash(str(self))
 
-    def _gather_hooks(self, agents: Iterable[Agent]):
+    def _register_hooks(self, agents: Iterable[Agent]):
         for agent in agents:
             for hook_point, hooks in agent.hooks.items():
                 self.hook_handler[hook_point].extend(hooks)
@@ -94,7 +104,9 @@ class Game:
             def print_board():
                 pass
 
-        if (status := self.logic.get_status(self.state, specs=self.specs)) != Status.ongoing:
+        if (
+            status := self.logic.get_status(self.state, specs=self.specs)
+        ) != Status.ongoing:
             game_over = True
 
         self._trigger_hooks(HookPoint.pre_run, self.state)
@@ -106,11 +118,19 @@ class Game:
                 game_over = True
 
         if status == Status.win_blue:
-            self.reward_agent(self.agents[Team.blue], RewardToken.win)
-            self.reward_agent(self.agents[Team.red], RewardToken.loss)
+            self.reward_agent(
+                self.agents[Team.blue], default_reward_function(RewardToken.win)
+            )
+            self.reward_agent(
+                self.agents[Team.red], default_reward_function(RewardToken.loss)
+            )
         elif status == Status.win_red:
-            self.reward_agent(self.agents[Team.blue], RewardToken.loss)
-            self.reward_agent(self.agents[Team.red], RewardToken.win)
+            self.reward_agent(
+                self.agents[Team.blue], default_reward_function(RewardToken.loss)
+            )
+            self.reward_agent(
+                self.agents[Team.red], default_reward_function(RewardToken.win)
+            )
         else:
             # it's a tie. No rewards.
             pass
@@ -141,20 +161,16 @@ class Game:
         self._trigger_hooks(HookPoint.pre_move_decision, self.state)
 
         if move is None:
-            move = agent.decide_move(
-                self.state.get_info_state(player), logic=self.logic
-            )
+            move = agent.decide_move(InfoState(self.state, player), logic=self.logic)
 
         self._trigger_hooks(HookPoint.post_move_decision, self.state, move)
 
         if not self.logic.is_legal_move(self.state.board, move):
-            self.reward_agent(agent, RewardToken.illegal)
+            self.reward_agent(agent, self.reward_func(RewardToken.illegal))
             return Status.win_red if player == Team.blue else Status.win_blue
 
         self.state.history.commit_move(
-            self.state.board,
-            move,
-            self.state.turn_counter,
+            self.state.board, move, self.state.turn_counter,
         )
 
         self._trigger_hooks(HookPoint.pre_move_execution, self.state, move)
@@ -169,14 +185,16 @@ class Game:
 
         if fight_status is not None:
             if fight_status == 1:
-                self.reward_agent(agent, RewardToken.kill)
+                self.reward_agent(agent, self.reward_func(RewardToken.kill))
             elif fight_status == -1:
-                self.reward_agent(agent, RewardToken.die)
+                self.reward_agent(agent, self.reward_func(RewardToken.die))
             else:
-                self.reward_agent(agent, RewardToken.kill_mutually)
+                self.reward_agent(agent, self.reward_func(RewardToken.kill_mutually))
 
         # test if game is over
-        if (status := self.logic.get_status(self.state, specs=self.specs)) != Status.ongoing:
+        if (
+            status := self.logic.get_status(self.state, specs=self.specs)
+        ) != Status.ongoing:
             return status
 
         return Status.ongoing
@@ -243,6 +261,6 @@ class Game:
         return board
 
     @staticmethod
-    def reward_agent(agent: Agent, reward: RewardToken):
+    def reward_agent(agent: Agent, reward: float):
         if isinstance(agent, RLAgent):
             agent.add_reward(reward)

@@ -1,5 +1,5 @@
 from .board import Board, InfoBoard
-from .state import State, History
+from .state import State, History, InfoState
 from .logic import Logic
 from .piece import Piece, ShadowPiece, Obstacle
 from .game_defs import (

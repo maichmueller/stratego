@@ -3,11 +3,6 @@ from typing import Dict, List, Callable, Optional, Union, Iterable
 import numpy as np
 import copy
 
-# from collections import Counter
-from scipy import spatial
-
-# from scipy import optimize
-
 import torch
 from collections import defaultdict, Counter
 from abc import ABC
@@ -29,7 +24,6 @@ from stratego.core import (
     Token,
 )
 from stratego.learning import (
-    RewardToken,
     Representation,
     DefaultRepresentation,
     PolicyMode,
@@ -93,8 +87,7 @@ class RLAgent(Agent, ABC):
         self,
         team: Union[int, Team],
         action_map: ActionMap,
-        representation: Representation,
-        reward_map: Dict[RewardToken, float]
+        representation: Representation
     ):
         super().__init__(team=team)
         self.action_map = action_map
@@ -102,7 +95,6 @@ class RLAgent(Agent, ABC):
         self.representation = representation
 
         self.reward = 0
-        self.reward_map: Dict[RewardToken, float] = reward_map
 
     def sample_action(
         self,
@@ -189,8 +181,8 @@ class RLAgent(Agent, ABC):
         prob = prob / prob.sum()
         return self.rng.choice(self.action_map.actions, p=prob)
 
-    def add_reward(self, reward_token: RewardToken):
-        self.reward += self.reward_map[reward_token]
+    def add_reward(self, reward: float):
+        self.reward += reward
 
 
 class DRLAgent(RLAgent, ABC):
@@ -204,14 +196,12 @@ class DRLAgent(RLAgent, ABC):
         action_map: ActionMap,
         model: torch.nn.Module,
         representation: Representation,
-        reward_map: Dict[RewardToken, float],
         device: str = "cpu"
     ):
         super().__init__(
             team=team,
             action_map=action_map,
             representation=representation,
-            reward_map=reward_map
         )
         self.model = model
         self.device = device

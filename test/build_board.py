@@ -25,3 +25,12 @@ def minimal_state2():
     board[3, 3] = Piece((1, 0), Team.red, Token.spy)
     state = State(board, Team.blue)
     return state
+
+
+def minimal_state3():
+    board = Board(np.empty((5, 5), dtype=object))
+    board[2, 2] = Obstacle((2, 2))
+    board[0, 0] = Piece((0, 0), Team.blue, Token.spy)
+    board[4, 4] = Piece((4, 4), Team.red, Token.spy)
+    state = State(board, Team.blue)
+    return state

@@ -507,7 +507,7 @@ class EvaluatorMCTS(MCTS):
         if state.flipped_teams:
             # undo the flip
             state.flip_teams()
-        
+
         actions_mask = self.action_map.actions_mask(state.board, team, self.logic)
         policy = policy * actions_mask  # masking invalid moves
         self.Ps[s] = policy / policy.sum()  # normalize to get probabilities

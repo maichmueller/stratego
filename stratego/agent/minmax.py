@@ -1,6 +1,5 @@
 from stratego.agent import Agent
 import numpy as np
-from scipy import spatial
 import torch
 
 import copy
@@ -238,7 +237,7 @@ class MinMax(Agent):
         :param moving_piece: object of class Piece
         :return: change is in-place, no value specified
         """
-        move_dist = spatial.distance.cityblock(move[0], move[1])
+        move_dist = len(move)
         if move_dist > 1:
             moving_piece.hidden = False
             moving_piece.potential_types = [moving_int]  # piece is 2
