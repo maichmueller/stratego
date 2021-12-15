@@ -26,7 +26,7 @@ class RandomAgent(Agent):
             )
 
     def decide_move(self, state: State, logic: Logic = Logic()):
-        all_moves = list(logic.possible_moves_iter(state.board, self.team))
+        all_moves = list(logic.possible_moves_iter(state.board, self.team, state.config))
         if not all_moves:
             return None
         else:

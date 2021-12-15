@@ -60,6 +60,9 @@ class Position:
     def __repr__(self):
         return str(self.coords)
 
+    def __eq__(self, other: Position):
+        return other.x == self.x and other.y == self.y
+
 
 @Position.__init__.register(Position)
 def _(self, pos: Position):
@@ -91,3 +94,6 @@ class Move:
 
     def __repr__(self):
         return f"{str(self.from_)}->{str(self.to_)}"
+
+    def __eq__(self, other: Move):
+        return other.to_ == self.to_ and other.from_ == self.from_

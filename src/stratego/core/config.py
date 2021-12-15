@@ -3,6 +3,11 @@ from typing import Tuple, Union, Dict, Iterable, Sequence, Optional, List, Type
 
 from .position import Position
 from .game_defs import Token, Team
+from collections import Counter, namedtuple
+
+Specification = namedtuple(
+    "Specification", ["token_counts", "obstacle_pos", "setup_rows", "game_size"]
+)
 
 
 def build_specs(game_size: int):
@@ -59,10 +64,11 @@ def build_specs(game_size: int):
             (5, 7),
         ]
         setup_rows = {Team.blue: [0, 1, 2, 3], Team.red: [6, 7, 8, 9]}
+        token_count = {team: token_count for team in Team}
         game_size = 10
     else:
         raise ValueError(f"Board size {game_size} not supported.")
-    return token_count, obstacle_positions, setup_rows, game_size
+    return Specification(token_count, obstacle_positions, setup_rows, game_size)
 
 
 _game_specs = {size: build_specs(size) for size in (5, 7, 10)}
@@ -90,10 +96,10 @@ def _verify_game_size(game_size):
 
 
 def _verify_setups(
-    setups: Tuple[Dict[Position, Token]], setup_rows: Dict[Team, Sequence[int]]
+    setups: Dict[Team, Dict[Position, Token]], setup_rows: Dict[Team, Sequence[int]]
 ):
-    for i, setup in enumerate(setups):
-        rows = setup_rows[Team(i)]
+    for team, setup in setups.items():
+        rows = setup_rows[team]
         for pos, token in setup.items():
             if pos.x not in rows:
                 raise ValueError(
@@ -129,42 +135,84 @@ class BattleMatrix(ABC):
         return cls.matrix[tokens[0], tokens[1]]
 
 
+def _create_move_ranges():
+    mr = {}
+    for token in Token:
+        if token == Token.scout:
+            mr[token] = float("inf")
+        elif token in [Token.flag, Token.bomb]:
+            mr[token] = 0
+        else:
+            mr[token] = 1
+    return mr
+
+
+class MoveRange(ABC):
+
+    lookup = _create_move_ranges()
+
+    def __class_getitem__(cls, token: Token):
+        return cls.lookup[token]
+
+
+def _update_token_counts(game_specs: Specification, setups):
+    token_counts = {}
+    for team, setup in setups.items():
+        token_counts[team] = Counter(setup.values())
+    return Specification(
+        token_counts=token_counts,
+        game_size=game_specs.game_size,
+        obstacle_pos=game_specs.obstacle_pos,
+        setup_rows=game_specs.setup_rows,
+    )
+
+
 class GameConfig:
     def __init__(
         self,
         game_size: Union[str, int],
         starting_team: Team,
-        setups: Optional[Tuple[Dict[Position, Token]]] = None,
+        *,  # the remainder should be kw-only arguments
+        setups: Optional[Dict[Team, Dict[Position, Token]]] = None,
         max_nr_turns: int = 500,
-        battlematrix: Type[BattleMatrix] = BattleMatrix
+        battlematrix: Type[BattleMatrix] = BattleMatrix,
+        move_ranges: Type[MoveRange] = MoveRange,
+        allow_atypical_setup: bool = False,
     ):
         game_size = _verify_game_size(game_size)
-        self._game_specs = _game_specs[game_size]
+        self._game_specs: Specification = _game_specs[game_size]
         self._starting_team = starting_team
         if setups is not None:
-            _verify_setups(setups, self.setup_rows)
+            if not allow_atypical_setup:
+                _verify_setups(setups, self.setup_rows)
+            self._game_specs = _update_token_counts(self._game_specs, setups)
         self._setups = setups
         self._max_nr_turns = max_nr_turns
         self._battle_matrix = battlematrix
+        self._move_ranges = move_ranges
 
     @property
-    def token_count(self) -> Dict[Token, int]:
-        return self._game_specs[0]
+    def token_count(self) -> Dict[Team, Dict[Token, int]]:
+        return self._game_specs.token_counts
 
     @property
     def obstacle_positions(self) -> Sequence[Position]:
-        return self._game_specs[1]
+        return self._game_specs.obstacle_pos
 
     @property
     def setup_rows(self) -> Dict[Team, Sequence[int]]:
-        return self._game_specs[2]
+        """
+        The default setup rows for this game configuration.
+        These are the rows one could choose from upon redrawing a setup.
+        """
+        return self._game_specs.setup_rows
 
     @property
     def game_size(self) -> int:
-        return self._game_specs[3]
+        return self._game_specs.game_size
 
     @property
-    def setups(self) -> Tuple[Dict[Position, Token]]:
+    def setups(self) -> Dict[Team, Dict[Position, Token]]:
         return self._setups
 
     @property
@@ -178,3 +226,7 @@ class GameConfig:
     @property
     def battlematrix(self) -> Type[BattleMatrix]:
         return self._battle_matrix
+
+    @property
+    def move_ranges(self) -> Type[MoveRange]:
+        return self._move_ranges

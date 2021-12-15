@@ -268,10 +268,16 @@ class MCTS:
         runtime = 0.0
         state_copy = deepcopy(state)
 
-        for i in range(self.rollout_depth):
+        while True:
             start_time = timer()
             # Choose action according to default policy
-            action = self.rollout_policy(state_copy, self.action_map.actions, depth)
+            action = self.rollout_policy(
+                state_copy,
+                self.action_map.actions_filtered(
+                    state_copy.board, state_copy.active_team, self.logic
+                ),
+                depth,
+            )
             # apply action onto state
             move = self.action_map.action_to_move(
                 action, state.piece_by_id, state.active_team

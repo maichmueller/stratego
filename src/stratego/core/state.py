@@ -68,14 +68,14 @@ class State:
         )
         self.history: History = history if history is not None else History()
 
-        self._config = config
+        self._config: GameConfig = config
         self._status: Status = status
         self._status_checked: bool = False
 
         self.flipped_teams: bool = flipped_teams
 
         self._turn_counter: int = turn_count
-        self._active_team: Team = Team((turn_count + int(self._starting_team)) % 2)
+        self._active_team: Team = turn_count + self.starting_team
 
         if dead_pieces is not None:
             assert all(
@@ -88,7 +88,7 @@ class State:
 
     def __str__(self):
         return (
-            f"Starting Team: {self._starting_team.name}\n"
+            f"Starting Team: {self.starting_team.name}\n"
             f"Active Team: {self._active_team.name}\n"
             f"Status: {self.status.name}\n"
             f"Turns: {str(self.turn_counter)}\n"
@@ -142,7 +142,7 @@ class State:
     @turn_counter.setter
     def turn_counter(self, count: int):
         self._turn_counter = count
-        self._active_team = Team((count + int(self._starting_team)) % 2)
+        self._active_team = count + self.starting_team
 
     def update_board(self, pos_to_piece_map: Dict[Position, Piece]):
         """

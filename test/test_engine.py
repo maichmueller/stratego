@@ -9,13 +9,13 @@ def test_logic():
     state = minimal_state()
     logic = Logic()
 
-    moves_blue = list(logic.possible_moves_iter(state.board, Team.blue))
-    moves_red = list(logic.possible_moves_iter(state.board, Team.red))
+    moves_blue = list(logic.possible_moves_iter(state.board, Team.blue, state.config))
+    moves_red = list(logic.possible_moves_iter(state.board, Team.red, state.config))
     x = 3
 
     state = minimal_state2()
-    moves_blue = list(logic.possible_moves_iter(state.board, Team.blue))
-    moves_red = list(logic.possible_moves_iter(state.board, Team.red))
+    moves_blue = list(logic.possible_moves_iter(state.board, Team.blue, state.config))
+    moves_red = list(logic.possible_moves_iter(state.board, Team.red, state.config))
     x = 3
 
 

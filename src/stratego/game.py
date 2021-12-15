@@ -91,7 +91,10 @@ class Game:
     def reset(self, config: GameConfig):
         self.state = State(
             Board(self.draw_board()),
-            config=GameConfig(config.game_size, self.rng.choice([Team.blue, Team.red])),
+            config=GameConfig(
+                game_size=config.game_size,
+                starting_team=self.rng.choice([Team.blue, Team.red]),
+            ),
         )
         return self
 
@@ -113,7 +116,7 @@ class Game:
                 pass
 
         if (
-            status := self.logic.get_status(self.state, specs=self.state.config)
+            status := self.logic.get_status(self.state)
         ) != Status.ongoing:
             game_over = True
 
@@ -223,7 +226,9 @@ class Game:
         rng = self.rng
 
         board = Board(
-            np.empty((self.state.config.game_size, self.state.config.game_size), dtype=object)
+            np.empty(
+                (self.state.config.game_size, self.state.config.game_size), dtype=object
+            )
         )  # inits all entries to None
         for team in Team:
             token_count = self.state.config.token_count

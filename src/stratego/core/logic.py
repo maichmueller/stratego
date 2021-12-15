@@ -7,6 +7,7 @@ from .game_defs import (
 from .state import State
 from .position import Position, Move
 from .board import Board
+from .config import GameConfig
 from stratego.utils import Singleton
 
 from typing import Sequence, Optional, Iterator, Union, Dict
@@ -16,7 +17,7 @@ from collections import Counter, defaultdict
 
 class Logic(metaclass=Singleton):
 
-    four_adjacency = np.array([(1, 0), (-1, 0), (0, 1), (0, -1)], dtype=int)
+    adjacency = np.array([(1, 0), (-1, 0), (0, 1), (0, -1)], dtype=int)
 
     @classmethod
     def execute_move(cls, state: State, move: Move) -> Optional[int]:
@@ -128,7 +129,7 @@ class Logic(metaclass=Singleton):
                 return
 
         if state.turn_counter >= state.config.max_nr_turns or any(
-            all(move is None for move in cls.possible_moves_iter(state.board, team))
+            all(move is None for move in cls.possible_moves_iter(state.board, team, state.config))
             for team in (Team.blue, Team.red)
         ):
             state.set_status(Status.tie)
@@ -189,7 +190,7 @@ class Logic(metaclass=Singleton):
 
     @classmethod
     def possible_moves_iter(
-        cls, board: Board, team: Union[int, Team]
+        cls, board: Board, team: Union[int, Team], config: GameConfig
     ) -> Iterator[Move]:
         """
         Returns
@@ -208,7 +209,7 @@ class Logic(metaclass=Singleton):
             ):
                 # board position has a movable piece of your team on it
                 for move in cls.moves_iter(
-                    piece.token, Position(tuple(map(int, pos))), game_size
+                    Position(tuple(map(int, pos))), game_size, config.move_ranges[piece.token]
                 ):
                     if cls.is_legal_move(board, move):
                         yield move
@@ -235,33 +236,48 @@ class Logic(metaclass=Singleton):
     @classmethod
     def moves_iter(
         cls,
-        token: Union[Token, int],
         pos: Position,
         game_size: int,
-        distances: Optional[Sequence[int]] = None,
+        distance: Optional[Union[int, Sequence[int]]] = None,
     ) -> Iterator[Move]:
-        token = Token(token)
+        """
+        Create a generator of moves from the given position `pos` onto new positions.
+        The iterator returns all possible moves to positions reachable by the given distances.
+        The provided moves may not be legal moves for the game.
 
-        if distances is None:
-            distances = (game_size - pos.x, pos.x + 1, game_size - pos.y, pos.y + 1)
-            if token != Token.scout:
-                # if it isn't a scout, then it can move only one field
-                # (which is bound by 2 due to range(2) stopping at 1)
-                distances = tuple(
+        Parameters
+        ----------
+        pos: Position,
+            the starting position
+        game_size: int,
+            the dimensions of the game
+        distance: Sequence[int],
+            the distances in the 4 directions to
+        """
+        if distance is None:
+            # the distances relate to the order of the 4-adjacency as defined above: [(1,0), (-1,0), (0,1), (0,-1)]
+            # One can only go this far up, down or sideways given the provided game_size
+            distance = (game_size - pos.x, pos.x + 1, game_size - pos.y, pos.y + 1)
+        else:
+            if isinstance(distance, int):
+                distance = tuple(
                     map(
-                        lambda x: min(x, 2),
-                        distances,
+                        lambda x: min(x, distance),
+                        (game_size - pos.x, pos.x + 1, game_size - pos.y, pos.y + 1),
                     )
                 )
-
-        else:
-            assert (
-                len(distances) == 4
-            ), "A sequence of 4 distances needs to be passed, since the grid has 4-adjacency."
+            elif isinstance(distance, Sequence):
+                assert (
+                        len(distance) == len(cls.adjacency)
+                ), f"A sequence of length {len(cls.adjacency)} distances needs to be passed to match the chosen " \
+                   f"grid-adjacency."
+            else:
+                raise ValueError(f"Distance parameter needs to be either int or sequence of ints. "
+                                 f"Given '{type(distance).__name__}'")
 
         for (i, j), stop in zip(
-            cls.four_adjacency,
-            distances,
+            cls.adjacency,
+            distance,
         ):
             for k in range(1, stop):
                 yield Move(pos, pos + Position(i, j) * k)

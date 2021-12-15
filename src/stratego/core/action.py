@@ -14,18 +14,15 @@ import numpy as np
 
 
 class Action:
-    def __init__(self, actor: Union[Tuple[Token, int], Piece], effect: Position):
+    def __init__(self, actor: Tuple[Token, int], effect: Position):
+
         # read only actor member
-        self._actor: Tuple[Token, int]
-        if isinstance(actor, tuple):
-            assert len(actor) == 2, "'actor' parameter as tuple must have length 2."
-            self._actor = actor
-        elif isinstance(actor, Piece):
-            self._actor = actor.token, actor.version
-        else:
-            raise ValueError("Actor parameter needs to be either Tuple or Piece.")
+        assert len(actor) == 2, "'actor' parameter must be tuple of length 2."
+        self._actor: Tuple[Token, int] = actor
+
         # read only effect member
         self._effect: Position = effect
+
         # cached hash value.
         # Since no member variable is ever supposed to change,
         # it is valid to cache this value.
@@ -53,17 +50,18 @@ class Action:
         return Action(self.actor, -self.effect)
 
     def __eq__(self, other: Action):
-        return self.actor == other.actor and self.effect == other.effect
+        return hash(self) == hash(other)
 
 
 class ActionMap:
     def __init__(self, config: GameConfig):
-        self.specs = config
+        self.config = config
         (
             self.actions,  # type: List[Action]
+            self.action_to_index,  # type: Dict[Action, int]
             self.actions_inverse,  # type: Dict[Action, Action]
             self.actors_to_actions,  # type: Dict[Tuple[Token, int], List[Action]]
-        ) = self._build_action_map(self.specs.token_count)
+        ) = self._build_action_map(self._max_token_counts(config.token_count))
         self.action_dim = len(self.actions)
 
     def __len__(self):
@@ -72,27 +70,35 @@ class ActionMap:
     def __iter__(self):
         return iter(self.actions)
 
-    @singledispatchmethod
-    def __getitem__(self, arg):
-        raise NotImplementedError("Passed type not supported.")
-
-    @__getitem__.register
-    def _(self, arg: int):
+    def __getitem__(self, arg: int):
         """
         An integer is assumed to be merely the index of the action list
         """
         return self.actions[arg]
 
-    @__getitem__.register
-    def _(self, arg: tuple):
+    @singledispatchmethod
+    def get_actions(self, arg: tuple):
         """
         With a tuple we assume we are being given a tuple of (Token, Version)
         """
         return self.actors_to_actions[arg]
 
-    @__getitem__.register
-    def _(self, arg: Piece):
-        return self.actors_to_actions[arg.token, arg.version]
+    @get_actions.register
+    def _(self, token: Token, version: int):
+        """
+        With a tuple we assume we are being given a tuple of (Token, Version)
+        """
+        return self.actors_to_actions[(token, version)]
+
+    @get_actions.register
+    def _(self, piece: Piece):
+        return self.get_actions(piece.token, piece.version)
+
+    def get_action_index(self, action: Action):
+        """
+        With a tuple we assume we are being given a tuple of (Token, Version)
+        """
+        return self.action_to_index[action]
 
     def invert_action(self, action: Action):
         """
@@ -100,22 +106,35 @@ class ActionMap:
         """
         return self.actions_inverse[action]
 
+    def _max_token_counts(self, token_counts: Dict[Team, Dict[Token, int]]):
+        return {
+            token: max(count1, count2)
+            for token, (count1, count2) in zip(
+                token_counts.keys(),
+                zip(
+                    token_counts[Team.blue].values(), token_counts[Team.blue].values(),
+                ),
+            )
+        }
+
     def _build_action_map(
         self, available_types: Dict[Token, int], logic: Logic = Logic()
     ):
         actions: List[Action] = []
+        action_to_index: Dict[Action, int] = dict()
         actions_inverse: Dict[Action, int] = dict()
         actors_to_actions: Dict[Tuple[Token, int], List[Action]] = dict()
+
+        id_counter: int = 0
 
         for token, freq in available_types.items():
             if token in [Token.flag, Token.bomb]:
                 continue
 
             moves: Iterator[Move] = logic.moves_iter(
-                token,
                 Position(0, 0),
-                self.specs.game_size,
-                distances=[self.specs.game_size] * 4,
+                self.config.game_size,
+                distance=[self.config.game_size] * 4,
             )
 
             for version in range(1, freq + 1):
@@ -123,6 +142,8 @@ class ActionMap:
                 actors_to_actions[actor] = []
                 for (pos_before, pos_after) in moves:
                     action = Action((token, version), pos_after - pos_before)
+                    action_to_index[action] = id_counter
+                    id_counter += 1
                     actions.append(action)
                     actors_to_actions[actor].append(action)
 
@@ -132,7 +153,7 @@ class ActionMap:
                     if other_action == neg_action:
                         actions_inverse[action] = other_idx
 
-        return actions, actions_inverse, actors_to_actions
+        return actions, action_to_index, actions_inverse, actors_to_actions
 
     def actions_mask(
         self, board: Board, team: Union[Team, int], logic: Logic = Logic()
@@ -153,21 +174,28 @@ class ActionMap:
 
         Returns
         -------
-
+        np.ndarray,
+            a flat array of shape (nr_actions,) of boolean values. A 1 at index i means that the i-th action is legal.
         """
         actions_mask = np.zeros(self.action_dim, dtype=np.int16)
         for (x, y), piece in np.ndenumerate(board):
             if (
-                piece is not None and piece.team == Team(team) and piece.can_move
+                isinstance(piece, Piece) and piece.team == Team(team) and piece.can_move
             ):  # board position has a piece on it
                 pos = Position(x, y)
                 # get the index range of this piece in the moves list
-                actions_indices = self[piece]
-                for action_idx in actions_indices:
-                    action = self[action_idx]
+                actions = self.get_actions(piece)
+                for action in actions:
+                    action_idx = self.get_action_index(action)
                     if logic.is_legal_move(board, Move(pos, action(pos))):
                         actions_mask[action_idx] = 1
         return actions_mask
+
+    def actions_filtered(
+        self, board: Board, team: Union[Team, int], logic: Logic = Logic()
+    ):
+        mask = self.actions_mask(board, team, logic)
+        return [action for i, action in enumerate(self.actions) if mask[i]]
 
     def action_to_move(
         self,

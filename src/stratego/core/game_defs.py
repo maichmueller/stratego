@@ -21,6 +21,14 @@ class Team(Enum):
     def _(self, value: int):
         return Team((self.value + value) % 2)
 
+    @singledispatchmethod
+    def __radd__(self, value):
+        raise NotImplementedError
+
+    @__radd__.register
+    def _(self, value: int):
+        return self + value
+
     def opponent(self):
         return self + 1
 
