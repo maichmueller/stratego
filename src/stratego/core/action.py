@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from queue import Queue
+
 from .state import State
 from .game_defs import Token, Team
 from .config import GameConfig
@@ -8,14 +10,25 @@ from .board import Board
 from .logic import Logic
 from .piece import Piece
 
-from typing import Tuple, Dict, Union, List, Iterator
+from typing import (
+    Tuple,
+    Dict,
+    Union,
+    List,
+    Iterator,
+    Callable,
+    Sequence,
+    Any,
+    Generic,
+    TypeVar,
+)
 from functools import singledispatchmethod
 import numpy as np
+import numpy.typing as npt
 
 
 class Action:
     def __init__(self, actor: Tuple[Token, int], effect: Position):
-
         # read only actor member
         assert len(actor) == 2, "'actor' parameter must be tuple of length 2."
         self._actor: Tuple[Token, int] = actor
@@ -112,7 +125,8 @@ class ActionMap:
             for token, (count1, count2) in zip(
                 token_counts.keys(),
                 zip(
-                    token_counts[Team.blue].values(), token_counts[Team.blue].values(),
+                    token_counts[Team.blue].values(),
+                    token_counts[Team.blue].values(),
                 ),
             )
         }
@@ -223,3 +237,62 @@ class ActionMap:
             action = self.actions[action]
         piece = identifier_to_piece[action.actor + (team,)]
         return Move(piece.position, action(piece.position))
+
+
+class Component:
+    def __init__(self, value: int):
+        self.value = value
+        self.children: List[Component] = []
+
+    def add_child(self, child: Component):
+        self.children.append(child)
+
+    @singledispatchmethod
+    def remove_child(self, child):
+        raise NotImplementedError
+
+    @remove_child.register(int)
+    def remove_child(self, child: int):
+        self.children = self.children[0:child] + self.children[child + 1 :]
+
+
+@Component.remove_child.register(Component)
+def remove_child(self, child: Component):
+    self.children.remove(child)
+
+
+T = TypeVar("T", bound=type)
+
+
+class ActionTree(Generic[T]):
+    def __init__(
+        self,
+        shape: Sequence[int],
+        comp_range: Sequence[ComponentRange],
+        masker: Callable[[State, List[Component]], npt.NDArray[bool]],
+        comp_extractor: Callable[
+            [State, npt.NDArray[Component], npt.NDArray[bool]], npt.NDArray[int]
+        ],
+    ):
+        self.shape = shape
+        self.components: npt.NDArray[shape, Component] = np.empty(
+            shape, dtype=Component
+        )
+        self.comp_masker = masker
+        self.comp_selector = comp_extractor
+
+    def build_ar(self, state: State):
+        queue = Queue()
+        queue.put((self.root_mask, self.shape[0]))
+        while not queue.empty():
+            next_components = yield queue.get()
+
+    def build(self, state: State) -> npt.NDArray[int]:
+        components = np.empty(self.shape, dtype=int)
+        mask = np.empty(self.shape, dtype=bool)
+        valid_comp_seq: List[Component] = []
+        for depth in range(len(self.shape) - 1):
+            curr_mask = self.comp_masker(state, valid_comp_seq)
+            mask[~curr_mask, depth] = curr_mask
+            next_comps = self.comp_selector(state, components[mask][:, 0:depth], mask)
+            components[:, depth + 1] = next_comps
