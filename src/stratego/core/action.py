@@ -20,7 +20,7 @@ from typing import (
     Sequence,
     Any,
     Generic,
-    TypeVar,
+    TypeVar, Optional,
 )
 from functools import singledispatchmethod
 import numpy as np
@@ -240,12 +240,29 @@ class ActionMap:
 
 
 class Component:
-    def __init__(self, value: int):
-        self.value = value
-        self.children: List[Component] = []
+    def __init__(self, value: int, mask: Optional[List[bool]] = None):
+        self._value = value
+        self._children: List[Component] = []
+        self._mask = mask
+
+    @property
+    def value(self):
+        return self._value
+
+    @property
+    def children(self):
+        return self._children
+
+    @property
+    def mask(self):
+        return self._mask
+
+    @mask.setter
+    def mask(self, mask: List[bool]):
+        self._mask = mask
 
     def add_child(self, child: Component):
-        self.children.append(child)
+        self._children.append(child)
 
     @singledispatchmethod
     def remove_child(self, child):
@@ -253,12 +270,12 @@ class Component:
 
     @remove_child.register(int)
     def remove_child(self, child: int):
-        self.children = self.children[0:child] + self.children[child + 1 :]
+        self._children = self._children[0:child] + self._children[child + 1:]
 
 
 @Component.remove_child.register(Component)
 def remove_child(self, child: Component):
-    self.children.remove(child)
+    self._children.remove(child)
 
 
 T = TypeVar("T", bound=type)
@@ -268,7 +285,6 @@ class ActionTree(Generic[T]):
     def __init__(
         self,
         shape: Sequence[int],
-        comp_range: Sequence[ComponentRange],
         masker: Callable[[State, List[Component]], npt.NDArray[bool]],
         comp_extractor: Callable[
             [State, npt.NDArray[Component], npt.NDArray[bool]], npt.NDArray[int]

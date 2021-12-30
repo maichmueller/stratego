@@ -13,3 +13,7 @@ checkpoints/*
 .dmypy.json
 
 **/stratego.egg-info/
+
+cmake-build-*
+
+*.so
