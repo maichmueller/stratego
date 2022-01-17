@@ -88,7 +88,8 @@ class Game:
             for hook_point, hooks in agent.hooks.items():
                 self.hook_handler[hook_point].extend(hooks)
 
-    def reset(self, config: GameConfig):
+    def reset(self, config: Optional[GameConfig] = None):
+        config = self.state.config if config is None else config
         self.state = State(
             Board(self.draw_board()),
             config=GameConfig(

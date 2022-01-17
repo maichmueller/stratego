@@ -25,7 +25,7 @@ from stratego.game import Game
 
 class DQNAlgorithm(Algorithm):
     """
-    A Deep Q-Network Teacher using the Double Q Learning strategy[1] if activated.
+    A Deep Q-Network Teacher using the Double Q Learning method[1] if desired.
     This can also be used in conjunction with a dueling network architecture[2].
 
     References
@@ -39,6 +39,12 @@ class DQNAlgorithm(Algorithm):
         International conference on machine learning.
         PMLR, 2016.
         http://proceedings.mlr.press/v48/wangf16.html
+    [3] Mnih, V., Kavukcuoglu, K., Silver, D., Rusu, A. A., Veness, J., Bellemare, M. G., Graves,
+        A., Riedmiller, M., Fidjeland, A. K., Ostrovski, G., Petersen, S., Beattie, C., Sadik, A.,
+        Antonoglou, I., King, H., Kumaran, D., Wierstra, D., Legg, S., & Hassabis, D. (2015).
+        "Human-level control through deep reinforcement learning."
+        Nature, 518(7540), 529–533.
+        https://doi.org/10.1038/nature14236
     """
 
     def __init__(
@@ -47,9 +53,11 @@ class DQNAlgorithm(Algorithm):
             student: DQNAgent,
             action_map: ActionMap,
             epsilon_scheduler: ExplorationScheduler,
+            target_update_period: int = int(1e4),
             double_q: bool = True,
             model_folder: str = "./checkpoints/models",
             train_data_folder: str = "./checkpoints/data",
+            seed: Union[int, np.random.Generator] = None,
     ):
         super().__init__(
             game, student, action_map
@@ -62,37 +70,38 @@ class DQNAlgorithm(Algorithm):
         # reassigned only to silence warnings for wrong student types
         self.student: DRLAgent = student
 
-        self.state_dict_target = self.student.model.state_dict()
-        self.state_dict_cache = None
+        self.model = self.student.model
+        self.target_model = deepcopy(self.student.model)
         self.epsilon_scheduler = epsilon_scheduler
-        self.double_q = double_q
+        self.target_update_period: int = target_update_period
+        self.rng = utils.rng_from_seed(seed)
+        self._is_target: bool = False
+        self._double_q: bool = double_q
 
+
+    @property
     def is_target(self):
-        return self.state_dict_cache is not None
+        return self._is_target
 
-    def swap_state_dicts(self):
+    @property
+    def double_q(self):
+        return self._double_q
+
+    def update_target(self):
         """
-        Switches the regular DQN network parameters with the target networks parameters and vice versa, depending on
-        its current status.
+        Switches the target DQN parameters with the training networks parameters.
         """
-        model = self.student.model
-        if not self.is_target():
-            self.state_dict_cache = deepcopy(model.state_dict())
-            model.load_state_dict(self.state_dict_target)
-        else:
-            model.load_state_dict(self.state_dict_cache)
-            self.state_dict_cache = None
+        self.target_model.load_state_dict(self.model.state_dict())
 
     def run(
             self,
-            n_epochs: int,
+            n_epochs: int = int(5e6),
             optimizer_class: Type[torch.optim.Optimizer] = torch.optim.Adam,
             optimizer_kwargs: Optional[Dict] = None,
-            batch_size: int = 4096,
+            batch_size: int = 32,
             gamma: float = 0.99,
             memory_capacity: int = 50000,
             device: str = "cpu",
-            seed: Union[int, np.random.Generator] = None,
     ):
         """
         Trains a reinforcement agent, acting according to the agents model
@@ -103,21 +112,22 @@ class DQNAlgorithm(Algorithm):
 
         Parameters
         ----------
-        optimizer_class
-        optimizer_kwargs
-        n_epochs
-        batch_size
-        gamma
-        memory_capacity
-        device
-        seed
+        n_epochs: int,
+            the number of training epochs to run. Defaults to 5e6 [3].
+        optimizer_class: Type[torch.optim.Optimizer],
+            the optimizer class to use for training. Defaults to Adam.
+        optimizer_kwargs: Dict[str, Any],
+            the keyword arguments or the optimizer class.
+        batch_size: int,
+            the number of samples to use for the minibatch update in the game loop. Defaults to 32 [3].
+        gamma: float,
+            the discount factor for rewards.
+        memory_capacity: int,
+            the experience replay capacity.
+        device: torch.device,
+            the device to run the model on.
         """
-        if not isinstance(self.student, DQNAgent):
-            raise ValueError(
-                f"Provided agent to train is not a DQN agent. Given: {type(self.student).__name__}"
-            )
-        rng = utils.rng_from_seed(seed)
-        replays = Experience(memory_capacity, DQNMemory, rng)
+        replays = Experience(memory_capacity, DQNMemory, self.rng)
         optimizer = optimizer_class(
             self.student.model.parameters(),
             **optimizer_kwargs if optimizer_kwargs else dict(),
@@ -161,6 +171,10 @@ class DQNAlgorithm(Algorithm):
                     device,
                 )
 
+                if ep % self.target_update_period == 0:
+                    # copy over the current network into the target network
+                    self.update_target()
+
     def train(
             self,
             optimizer: torch.optim.Optimizer,
@@ -172,7 +186,7 @@ class DQNAlgorithm(Algorithm):
         Sample batch from memory of environment transitions and train network to fit the
         temporal difference TD(0) Q-value approximation
         """
-        model = self.student.model
+        model = self.model
         model.train()
         # Compute a mask of non-final states and concatenate the batch elements
         non_final_mask = []
@@ -198,32 +212,36 @@ class DQNAlgorithm(Algorithm):
         action_batch = torch.cat(actions)
         reward_batch = torch.cat(rewards)
 
-        # Compute Q(s_t, a) - the model computes Q(s_t, . ), then we select the columns of actions taken
+        # what would the training model predict?
+        # Compute Q(s_t, a) - the model computes Q(s_t, . ), then we select the columns of actions taken in the sample
         q_values = model(state_batch).gather(1, action_batch)
 
         # Compute V(s_{t+1}) for all next states s_{t+1} of s_t.
         next_state_v = (
             torch.zeros(batch_size).float().to(device)
-        )  # zero for terminal states
+        )  # zero for terminal states (currently for all, but will be set further down)
 
-        # what would the model predict
-        # computes argmax_a Q(s,a)
-        estimated_q_values = model(non_final_next_states)
-        estimated_best_choices = model(non_final_next_states).argmax(1)
-        # now assign the double q estimates to the non-terminal states:
+        # what would the target model predict?
+        # These values are the non-gradient carrying targets used as the goals for taining the model q-estimates.
         if self.double_q:
-            # assign double q learning q-values: Q_2( argmax_a Q_1(s,a))
-            self.swap_state_dicts()
-            next_state_v[non_final_mask] = model(non_final_next_states)[:, estimated_best_choices]
+            # let Q_1 be the action selecting model (training model),
+            #     Q_2 be the chosen action q-evaluating model (target model)
+            # -> assign double q learning q-values: Q_2(s_{t+1}, argmax_a Q_1(s_{t+1},a))
+            estimated_best_choices = model(non_final_next_states).argmax(1)
+            next_state_v[non_final_mask] = self.target_model(non_final_next_states)[:, estimated_best_choices]
         else:
-            # Otherwise, simply assign normal q-values: Q( argmax_a Q(s,a))
-            next_state_v[non_final_mask] = estimated_q_values[:, estimated_best_choices]
+            # Otherwise, do standard Deep Q-learning, i.e. use DQN-algo q-values:
+            #   Q(s, argmax_a Q(s,a, | theta_target) | theta_target)
+            next_state_v[non_final_mask] = self.target_model(non_final_next_states).max(1)
 
         with torch.no_grad():
-            # the expected next-state values require the stop-gradient!
-            expected_q_values = (
-                                                   next_state_v * gamma
-                                           ) + reward_batch
+            # the expected q-values, which are the target values y_t, require the stop-gradient!
+
+            # the q-values are computed via the current reward and discounted expected rewards (aka exp. state-values)
+            # of the chosen action:
+            # Q(s, a) = r + gamma * max_{a'} Q(s', a')
+            # The value of next_state_v is 0 for any terminal state -> only the reward is used in this case
+            expected_q_values = reward_batch + next_state_v * gamma
 
         loss = F.smooth_l1_loss(
             q_values.view(-1), expected_q_values.view(-1)
