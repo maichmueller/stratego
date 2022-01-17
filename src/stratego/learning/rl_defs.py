@@ -24,13 +24,13 @@ class RewardToken(Enum):
 
 def default_reward_function(reward_token: RewardToken):
     if reward_token == RewardToken.win:
-        return 1.
+        return 1.0
     elif reward_token == RewardToken.loss:
-        return -1.
+        return -1.0
     elif reward_token == RewardToken.tie:
-        return 0.
+        return 0.0
     else:
-        return 0.
+        return 0.0
 
 
 class PolicyMode(Enum):

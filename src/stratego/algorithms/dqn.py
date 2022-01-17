@@ -48,20 +48,18 @@ class DQNAlgorithm(Algorithm):
     """
 
     def __init__(
-            self,
-            game: Game,
-            student: DQNAgent,
-            action_map: ActionMap,
-            epsilon_scheduler: ExplorationScheduler,
-            target_update_period: int = int(1e4),
-            double_q: bool = True,
-            model_folder: str = "./checkpoints/models",
-            train_data_folder: str = "./checkpoints/data",
-            seed: Union[int, np.random.Generator] = None,
+        self,
+        game: Game,
+        student: DQNAgent,
+        action_map: ActionMap,
+        epsilon_scheduler: ExplorationScheduler,
+        target_update_period: int = int(1e4),
+        double_q: bool = True,
+        model_folder: str = "./checkpoints/models",
+        train_data_folder: str = "./checkpoints/data",
+        seed: Union[int, np.random.Generator] = None,
     ):
-        super().__init__(
-            game, student, action_map
-        )
+        super().__init__(game, student, action_map)
         self.model_folder = model_folder
         self.train_data_folder = train_data_folder
         assert isinstance(
@@ -78,7 +76,6 @@ class DQNAlgorithm(Algorithm):
         self._is_target: bool = False
         self._double_q: bool = double_q
 
-
     @property
     def is_target(self):
         return self._is_target
@@ -94,14 +91,14 @@ class DQNAlgorithm(Algorithm):
         self.target_model.load_state_dict(self.model.state_dict())
 
     def run(
-            self,
-            n_epochs: int = int(5e6),
-            optimizer_class: Type[torch.optim.Optimizer] = torch.optim.Adam,
-            optimizer_kwargs: Optional[Dict] = None,
-            batch_size: int = 32,
-            gamma: float = 0.99,
-            memory_capacity: int = 50000,
-            device: str = "cpu",
+        self,
+        n_epochs: int = int(5e6),
+        optimizer_class: Type[torch.optim.Optimizer] = torch.optim.Adam,
+        optimizer_kwargs: Optional[Dict] = None,
+        batch_size: int = 32,
+        gamma: float = 0.99,
+        memory: Optional[Experience] = None,
+        device: str = "cpu",
     ):
         """
         Trains a reinforcement agent, acting according to the agents model
@@ -122,12 +119,12 @@ class DQNAlgorithm(Algorithm):
             the number of samples to use for the minibatch update in the game loop. Defaults to 32 [3].
         gamma: float,
             the discount factor for rewards.
-        memory_capacity: int,
-            the experience replay capacity.
+        memory: (optional) Experience,
+            the experience replay container. Defaults to the DQN container with 50000 capacity.
         device: torch.device,
             the device to run the model on.
         """
-        replays = Experience(memory_capacity, DQNMemory, self.rng)
+        replays = Experience(1e5, DQNMemory, self.rng) if memory is None else memory
         optimizer = optimizer_class(
             self.student.model.parameters(),
             **optimizer_kwargs if optimizer_kwargs else dict(),
@@ -165,10 +162,7 @@ class DQNAlgorithm(Algorithm):
                 state = next_state  # move to the next state
                 # one step of optimization of target network
                 self.train(
-                    optimizer,
-                    replays.sample(batch_size),
-                    gamma,
-                    device,
+                    optimizer, replays.sample(batch_size), gamma, device,
                 )
 
                 if ep % self.target_update_period == 0:
@@ -176,11 +170,11 @@ class DQNAlgorithm(Algorithm):
                     self.update_target()
 
     def train(
-            self,
-            optimizer: torch.optim.Optimizer,
-            batch: np.ndarray,
-            gamma: float,
-            device: str,
+        self,
+        optimizer: torch.optim.Optimizer,
+        batch: np.ndarray,
+        gamma: float,
+        device: str,
     ):
         """
         Sample batch from memory of environment transitions and train network to fit the
@@ -222,17 +216,21 @@ class DQNAlgorithm(Algorithm):
         )  # zero for terminal states (currently for all, but will be set further down)
 
         # what would the target model predict?
-        # These values are the non-gradient carrying targets used as the goals for taining the model q-estimates.
+        # These values are the non-gradient carrying targets used as the goals for training the model q-estimates.
         if self.double_q:
             # let Q_1 be the action selecting model (training model),
             #     Q_2 be the chosen action q-evaluating model (target model)
             # -> assign double q learning q-values: Q_2(s_{t+1}, argmax_a Q_1(s_{t+1},a))
             estimated_best_choices = model(non_final_next_states).argmax(1)
-            next_state_v[non_final_mask] = self.target_model(non_final_next_states)[:, estimated_best_choices]
+            next_state_v[non_final_mask] = self.target_model(non_final_next_states)[
+                :, estimated_best_choices
+            ]
         else:
             # Otherwise, do standard Deep Q-learning, i.e. use DQN-algo q-values:
             #   Q(s, argmax_a Q(s,a, | theta_target) | theta_target)
-            next_state_v[non_final_mask] = self.target_model(non_final_next_states).max(1)
+            next_state_v[non_final_mask] = self.target_model(non_final_next_states).max(
+                1
+            )
 
         with torch.no_grad():
             # the expected q-values, which are the target values y_t, require the stop-gradient!
